@@ -31,9 +31,15 @@ actor AudioFileWriter {
     }
 
     /// Where recordings live: `~/Library/Application Support/Blurt/Recordings`.
+    ///
+    /// Milliseconds are in the name for a reason. Timestamped to the second, two
+    /// dictations started within the same second produce the same path and the
+    /// first is silently overwritten — which is exactly what a dictation app
+    /// invites, since nothing stops anyone speaking twice in quick succession.
     static func newRecordingURL(now: Date = .now) -> URL {
         let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss.SSS"
 
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         return support

@@ -17,6 +17,14 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEAD_CODE_STRIPPING: YES
 
+# The project's only dependency. Wraps Carbon's RegisterEventHotKey, which needs
+# no permission and keeps working while a password field holds secure input —
+# unlike an event tap, which goes silent in that state.
+packages:
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    from: "3.1.0"
+
 targets:
   Blurt:
     type: application
@@ -24,6 +32,9 @@ targets:
 
     sources:
       - path: Sources
+
+    dependencies:
+      - package: KeyboardShortcuts
 
     # XcodeGen writes Info.plist from these properties, so the plist is a build
     # artifact and this file stays the single source of truth.

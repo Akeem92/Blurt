@@ -6,6 +6,7 @@ import AVFoundation
 /// go and listen to what was actually captured.
 struct MicrophonePane: View {
     let controller: DictationController
+    @Bindable var preferences: Preferences
 
     @State private var permission = MicrophoneAccess.status
 
@@ -46,14 +47,14 @@ struct MicrophonePane: View {
                     LevelBar(level: controller.capture.isRunning ? controller.inputLevel : 0)
                 }
 
-                Toggle("Voice processing", isOn: voiceProcessingBinding)
+                Toggle("Voice processing", isOn: $preferences.isVoiceProcessingEnabled)
                     .disabled(controller.capture.isRunning)
                 Text("Built for speakerphone conditions, where your own voice comes back into the microphone through the air. On a headset there is no such echo, so it brings only its side effects: telephony-grade noise reduction and gain riding, which thin out an already quiet headset microphone. Worth trying on the built-in microphone, best left off with a headset.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                Toggle("Automatic gain control", isOn: automaticGainControlBinding)
-                    .disabled(controller.capture.isRunning || !controller.capture.isVoiceProcessingEnabled)
+                Toggle("Automatic gain control", isOn: $preferences.isAutomaticGainControlEnabled)
+                    .disabled(controller.capture.isRunning || !preferences.isVoiceProcessingEnabled)
                 Text("Rides the input level up and down to keep it steady. Lifts room noise during pauses.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -89,19 +90,7 @@ struct MicrophonePane: View {
         .onAppear { permission = MicrophoneAccess.status }
     }
 
-    private var voiceProcessingBinding: Binding<Bool> {
-        Binding(
-            get: { controller.capture.isVoiceProcessingEnabled },
-            set: { controller.capture.isVoiceProcessingEnabled = $0 }
-        )
-    }
 
-    private var automaticGainControlBinding: Binding<Bool> {
-        Binding(
-            get: { controller.capture.isAutomaticGainControlEnabled },
-            set: { controller.capture.isAutomaticGainControlEnabled = $0 }
-        )
-    }
 
     @ViewBuilder
     private var recordButton: some View {

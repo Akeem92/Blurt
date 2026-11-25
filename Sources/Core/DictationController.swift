@@ -26,6 +26,9 @@ final class DictationController {
 
     let capture = AudioCaptureService()
 
+    @ObservationIgnored
+    private let preferences: Preferences
+
     /// Live input level for the waveform. Read at screen rate, never stored in
     /// `state`.
     var inputLevel: Float { capture.level.load() }
@@ -36,7 +39,9 @@ final class DictationController {
     @ObservationIgnored
     private let log = Logger(subsystem: "com.blurt.app", category: "dictation")
 
-    init() {}
+    init(preferences: Preferences) {
+        self.preferences = preferences
+    }
 
     // MARK: - Transitions
 
@@ -48,6 +53,12 @@ final class DictationController {
         guard case .idle = state else { return }
 
         if await !ensureMicrophoneAccess() { return }
+
+        // Applied here rather than when the toggles move: these only take effect
+        // at `start()`, so reading them now is also what makes them survive a
+        // relaunch without a separate wiring step.
+        capture.isVoiceProcessingEnabled = preferences.isVoiceProcessingEnabled
+        capture.isAutomaticGainControlEnabled = preferences.isAutomaticGainControlEnabled
 
         do {
             let buffers = try capture.start()

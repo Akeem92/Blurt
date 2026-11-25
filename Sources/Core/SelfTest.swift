@@ -3,6 +3,7 @@ import AppKit
 import AVFoundation
 import Accelerate
 import Foundation
+import KeyboardShortcuts
 import Synchronization
 
 /// Headless checks, so behaviour that only shows up once real audio is flowing
@@ -25,10 +26,100 @@ enum SelfTest {
         case "--selftest-record": await recordTest()
         case "--selftest-channels": await channelsTest()
         case "--selftest-pill": await pillTest()
+        case "--selftest-shortcut": await shortcutTest()
         default:
             FileHandle.standardError.write(Data("unknown self-test: \(name)\n".utf8))
             exit(64)
         }
+    }
+
+    /// Exercises both activation modes through the coordinator.
+    ///
+    /// The interesting case is a hold shorter than the minimum: brushing the
+    /// shortcut must not leave a fraction of a second of audio and a
+    /// transcription attempt over nothing.
+    @MainActor
+    private static func shortcutTest() async -> Never {
+        guard MicrophoneAccess.status == .granted else {
+            print("FAIL  microphone not granted")
+            exit(3)
+        }
+
+        // An isolated defaults suite, so running the tests never disturbs real
+        // settings.
+        let suite = "com.blurt.app.selftest"
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        let preferences = Preferences(defaults: UserDefaults(suiteName: suite)!)
+        let controller = DictationController(preferences: preferences)
+        let coordinator = ShortcutCoordinator(controller: controller, preferences: preferences)
+
+        print("      registered shortcut: \(KeyboardShortcuts.getShortcut(for: .dictate)?.description ?? "none")")
+
+        var failures: [String] = []
+
+        /// Runs one scenario and reports how long the recording actually lasted,
+        /// measured from the first press to the file appearing.
+        func run(_ label: String, _ body: () async -> Void) async -> Double? {
+            let previous = controller.lastRecordingURL
+            let started = Date.now
+            await body()
+
+            for _ in 0..<80 where controller.lastRecordingURL == previous {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            guard controller.lastRecordingURL != previous else {
+                failures.append("\(label): no recording was produced")
+                return nil
+            }
+
+            let elapsed = Date.now.timeIntervalSince(started)
+            print(String(format: "      %-20s %.2f s", (label as NSString).utf8String!, elapsed))
+            return elapsed
+        }
+
+        // Held comfortably: should last about as long as the key was down.
+        preferences.activationMode = .holdToTalk
+        if let elapsed = await run("hold 800 ms", {
+            coordinator.simulatePress()
+            try? await Task.sleep(for: .milliseconds(800))
+            coordinator.simulateRelease()
+        }), elapsed < 0.7 {
+            failures.append("hold 800 ms ended after only \(elapsed) s")
+        }
+
+        // Brushed: the minimum-hold rule should stretch this to a usable length
+        // rather than leaving a sliver of audio behind.
+        if let elapsed = await run("brush 40 ms", {
+            coordinator.simulatePress()
+            try? await Task.sleep(for: .milliseconds(40))
+            coordinator.simulateRelease()
+        }), elapsed < 0.18 {
+            failures.append("brush produced only \(elapsed) s — minimum hold was not applied")
+        }
+
+        // Toggle: two presses, and the release in between must be ignored.
+        preferences.activationMode = .toggle
+        if let elapsed = await run("toggle 700 ms", {
+            coordinator.simulatePress()
+            coordinator.simulateRelease()
+            try? await Task.sleep(for: .milliseconds(700))
+            coordinator.simulatePress()
+        }), elapsed < 0.6 {
+            failures.append("toggle ended after only \(elapsed) s — the release was not ignored")
+        }
+
+        if case .idle = controller.state {} else {
+            failures.append("ended in \(controller.state) rather than idle")
+        }
+
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+
+        guard failures.isEmpty else {
+            for failure in failures { print("FAIL  \(failure)") }
+            exit(1)
+        }
+        print("PASS  both activation modes behave")
+        exit(0)
     }
 
     /// Checks that showing the recording pill does not take focus from whatever
@@ -52,7 +143,7 @@ enum SelfTest {
         let before = frontmost()
         print("      frontmost before: \(before)")
 
-        let controller = DictationController()
+        let controller = DictationController(preferences: Preferences())
         let presenter = RecordingPillPresenter(controller: controller)
         _ = presenter  // held for the duration of the test
 
@@ -242,7 +333,7 @@ enum SelfTest {
             exit(3)
         }
 
-        let controller = DictationController()
+        let controller = DictationController(preferences: Preferences())
         controller.capture.isVoiceProcessingEnabled =
             CommandLine.arguments.contains("--voice-processing")
 

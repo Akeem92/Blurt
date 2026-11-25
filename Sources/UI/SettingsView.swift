@@ -6,19 +6,16 @@ import SwiftUI
 /// the finished app is visible from the first build instead of being guessed at.
 struct SettingsView: View {
     let controller: DictationController
+    let preferences: Preferences
 
     var body: some View {
         TabView {
-            Tab("Microphone", systemImage: "mic") {
-                MicrophonePane(controller: controller)
+            Tab("Shortcut", systemImage: "command") {
+                ShortcutPane(preferences: preferences)
             }
 
-            Tab("Shortcut", systemImage: "command") {
-                ComingSoonPane(
-                    title: "Shortcut",
-                    detail: "Pick the key, and choose between hold-to-talk and press-to-toggle.",
-                    step: 3
-                )
+            Tab("Microphone", systemImage: "mic") {
+                MicrophonePane(controller: controller, preferences: preferences)
             }
 
             Tab("Transcription", systemImage: "waveform") {
@@ -82,5 +79,6 @@ private struct ComingSoonPane: View {
 }
 
 #Preview {
-    SettingsView(controller: DictationController())
+    let preferences = Preferences(defaults: UserDefaults(suiteName: "preview")!)
+    SettingsView(controller: DictationController(preferences: preferences), preferences: preferences)
 }

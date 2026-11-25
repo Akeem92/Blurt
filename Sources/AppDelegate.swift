@@ -2,15 +2,17 @@ import AppKit
 
 /// SwiftUI's `App` covers scenes; a few things still need the AppKit lifecycle.
 ///
-/// The dictation controller lives here rather than as `@State` in `BlurtApp`
-/// because things that are not scenes need to reach it. The recording pill is
-/// the first: it has to appear while no window of Blurt's is open, so it cannot
-/// hang off a view hierarchy.
+/// The long-lived objects live here rather than as `@State` in `BlurtApp`,
+/// because things that are not scenes need to reach them. The recording pill has
+/// to appear while no window of Blurt's is open, and the shortcut has to work
+/// when the app has no window at all.
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    let controller = DictationController()
+    let preferences = Preferences()
+    lazy var controller = DictationController(preferences: preferences)
 
     private var pill: RecordingPillPresenter?
+    private var shortcut: ShortcutCoordinator?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         #if DEBUG
@@ -21,5 +23,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         #endif
 
         pill = RecordingPillPresenter(controller: controller)
+        shortcut = ShortcutCoordinator(controller: controller, preferences: preferences)
     }
 }

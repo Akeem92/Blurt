@@ -34,7 +34,7 @@ text field.
 | 1 | Menu-bar skeleton, settings window, state machine | ✅ done |
 | 2a | Microphone permission, capture, live input level | ✅ done |
 | 2b | The floating recording pill | ✅ done |
-| 3 | Configurable global shortcut, hold-to-talk and toggle | — |
+| 3 | Configurable global shortcut, hold-to-talk and toggle | ✅ done |
 | 4 | Transcription via Apple SpeechAnalyzer | — |
 | 5 | Insertion into the frontmost app — **first usable build** | — |
 | 6 | Cleanup: punctuation and fillers, optional Claude polish | — |
