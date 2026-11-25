@@ -6,7 +6,7 @@ import SwiftUI
 /// arrangement as the settings level bar, so a busy audio pipeline can never
 /// make the waveform stutter.
 struct RecordingPill: View {
-    let meter: AudioLevelMeter
+    let controller: DictationController
 
     /// Rolling history of recent levels, oldest first. Fixed length, so the
     /// waveform scrolls rather than growing.
@@ -16,33 +16,53 @@ struct RecordingPill: View {
         static let barCount = 26
         static let barWidth: CGFloat = 3
         static let barGap: CGFloat = 2
-        static let size = CGSize(width: 168, height: 42)
+
+        /// The window is this size always; the capsule inside hugs its content
+        /// and grows as text arrives. Resizing a borderless panel while it is on
+        /// screen is visibly jerky, and there is nothing to gain from it — the
+        /// window is transparent and passes clicks through either way.
+        static let windowSize = CGSize(width: 560, height: 56)
+
         static var waveformWidth: CGFloat {
             CGFloat(barCount) * barWidth + CGFloat(barCount - 1) * barGap
         }
     }
 
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "mic.fill")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.red)
+    private var transcript: String {
+        controller.liveTranscript.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
+    var body: some View {
+        HStack(spacing: 12) {
             Waveform(samples: history)
                 .frame(width: Layout.waveformWidth, height: 20)
+
+            if !transcript.isEmpty {
+                Text(transcript)
+                    .font(.system(size: 13))
+                    .lineLimit(1)
+                    // Truncate the beginning, not the end: the words that just
+                    // left your mouth are the ones worth seeing.
+                    .truncationMode(.head)
+                    .frame(maxWidth: 340, alignment: .trailing)
+                    .transition(.opacity)
+            }
         }
-        .padding(.horizontal, 14)
-        .frame(width: Layout.size.width, height: Layout.size.height)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
         .background {
             Capsule().fill(.ultraThinMaterial)
             Capsule().strokeBorder(.primary.opacity(0.12), lineWidth: 1)
         }
+        .fixedSize()
+        .animation(.easeOut(duration: 0.18), value: transcript.isEmpty)
+        .frame(width: Layout.windowSize.width, height: Layout.windowSize.height)
         .task {
             // Pulls one sample per displayed frame for as long as this view is on
             // screen, and stops on its own when it goes away.
             while !Task.isCancelled {
                 history.removeFirst()
-                history.append(meter.load())
+                history.append(controller.inputLevel)
                 try? await Task.sleep(for: .milliseconds(33))
             }
         }
@@ -82,9 +102,4 @@ private struct Waveform: View {
             }
         }
     }
-}
-
-#Preview {
-    RecordingPill(meter: AudioLevelMeter())
-        .padding(40)
 }

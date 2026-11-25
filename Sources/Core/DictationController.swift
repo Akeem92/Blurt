@@ -20,9 +20,26 @@ final class DictationController {
     /// Read-only from the outside: only this type decides what state the app is in.
     private(set) var state: RecordingState = .idle
 
-    /// Where the last finished recording landed. Step 2 only — this is how the
-    /// capture gets judged by ear instead of by a moving bar.
+    /// Where the last finished recording landed, so the capture can be judged by
+    /// ear rather than by a moving bar.
     private(set) var lastRecordingURL: URL?
+
+    /// The transcript as it is being spoken, for the pill to show. Cleared when a
+    /// new dictation begins.
+    private(set) var liveTranscript = ""
+
+    /// The finished text of the last dictation.
+    private(set) var lastTranscript = ""
+
+    /// Built fresh each time so it always carries the current settings. A struct,
+    /// so this costs nothing — and there is no stale copy to keep in step with
+    /// the preferences.
+    var engine: any TranscriptionEngine {
+        var engine = AppleDictationEngine()
+        engine.wantsPunctuation = preferences.isPunctuationEnabled
+        engine.wantsEmoji = preferences.isEmojiEnabled
+        return engine
+    }
 
     let capture = AudioCaptureService()
 
@@ -37,6 +54,17 @@ final class DictationController {
     private var drainTask: Task<Void, Never>?
 
     @ObservationIgnored
+    private var transcriptTask: Task<Void, Never>?
+
+    @ObservationIgnored
+    private var session: (any TranscriptionSession)?
+
+    /// Set when a stop arrives during `.starting`, honoured as soon as the
+    /// microphone is actually live.
+    @ObservationIgnored
+    private var stopRequested = false
+
+    @ObservationIgnored
     private let log = Logger(subsystem: "com.blurt.app", category: "dictation")
 
     init(preferences: Preferences) {
@@ -45,12 +73,24 @@ final class DictationController {
 
     // MARK: - Transitions
 
-    /// idle → recording
+    /// idle or failed → recording
     ///
-    /// Guarded on `.idle` rather than on a boolean: a second shortcut press while
-    /// a dictation is in flight simply finds the wrong state and does nothing.
+    /// Guarded on the state rather than on a boolean: a second shortcut press
+    /// while a dictation is in flight simply finds the wrong state and does
+    /// nothing.
+    ///
+    /// `.failed` starts a new dictation just as `.idle` does. A failure is a
+    /// resting state with an explanation attached, not a latch — treating it as
+    /// one meant that after a dictation caught no speech, the next press of the
+    /// shortcut did nothing at all, with no clue as to why.
     func startRecording() async {
-        guard case .idle = state else { return }
+        switch state {
+        case .idle, .failed: break
+        case .starting, .recording, .transcribing, .cleaning, .inserting: return
+        }
+
+        stopRequested = false
+        state = .starting
 
         if await !ensureMicrophoneAccess() { return }
 
@@ -70,7 +110,29 @@ final class DictationController {
             }
 
             let writer = try AudioFileWriter(url: AudioFileWriter.newRecordingURL(), format: format)
+
+            // Transcription starts with the recording, not after it. By the time
+            // the key is released the model has already heard almost everything,
+            // so the wait at the end is a fraction of a second rather than
+            // something proportional to how long the sentence was.
+            let session = try await engine.beginSession(locale: preferences.transcriptionLocale)
+            self.session = session
+
+            liveTranscript = ""
             state = .recording(since: .now)
+
+            // A stop that arrived while all this was being set up. Honoured now
+            // that there is something to stop.
+            if stopRequested {
+                stopRequested = false
+                capture.stop()
+            }
+
+            transcriptTask = Task { [weak self] in
+                for await update in session.updates {
+                    self?.liveTranscript = update.text
+                }
+            }
 
             // `Task.detached`, not plain `Task`. A plain `Task` created inside a
             // `@MainActor` method *inherits* that isolation, so this loop would
@@ -83,6 +145,7 @@ final class DictationController {
             let logger = log
             drainTask = Task.detached {
                 for await captured in buffers {
+                    await session.feed(captured)
                     do {
                         try await writer.write(captured)
                     } catch {
@@ -92,23 +155,65 @@ final class DictationController {
                 await self.finishRecording(savedTo: writer.url)
             }
         } catch {
-            log.error("Could not start capture: \(error.localizedDescription)")
-            state = .failed(.transcriptionFailed(reason: "\(error)"))
+            log.error("Could not start dictation: \(error.localizedDescription)")
+            capture.stop()
+            state = .failed((error as? DictationError) ?? .transcriptionFailed(reason: "\(error)"))
         }
     }
 
-    /// recording → idle, by way of draining whatever is still in the stream.
+    /// recording → transcribing, by way of draining whatever is still in flight.
     func stopRecording() {
-        guard case .recording = state else { return }
-        capture.stop()
+        switch state {
+        case .recording:
+            capture.stop()
+
+        case .starting:
+            // The key came up before the microphone was open. Remembering the
+            // request is what stops a quick tap leaving the microphone running
+            // for good — the alternative, silently ignoring it, is how that bug
+            // happened in the first place.
+            stopRequested = true
+
+        case .idle, .transcribing, .cleaning, .inserting, .failed:
+            break
+        }
     }
 
-    /// Called once the stream has run dry, so nothing in flight is lost.
-    private func finishRecording(savedTo url: URL) {
+    /// Called once the audio stream has run dry, so no words are lost to a buffer
+    /// that was still in transit when the key came up.
+    private func finishRecording(savedTo url: URL) async {
         drainTask = nil
         lastRecordingURL = url
-        // Step 4 turns this into `.transcribing`. For now the trip ends here.
-        state = .idle
+
+        guard let session else {
+            state = .idle
+            return
+        }
+        self.session = nil
+
+        state = .transcribing
+
+        do {
+            let text = try await session.finish()
+            transcriptTask?.cancel()
+            transcriptTask = nil
+
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                state = .failed(.noSpeechDetected)
+                return
+            }
+
+            lastTranscript = trimmed
+            liveTranscript = trimmed
+            // Step 5 carries this into `.inserting`, step 6 cleans it on the way.
+            state = .idle
+        } catch {
+            log.error("Transcription failed: \(error.localizedDescription)")
+            transcriptTask?.cancel()
+            transcriptTask = nil
+            state = .failed(.transcriptionFailed(reason: "\(error)"))
+        }
     }
 
     // MARK: - Permission
@@ -139,7 +244,8 @@ final class DictationController {
     /// a microphone. Debug builds only.
     func debugCycleState() {
         state = switch state {
-        case .idle: .recording(since: .now)
+        case .idle: .starting
+        case .starting: .recording(since: .now)
         case .recording: .transcribing
         case .transcribing: .cleaning(raw: "hello world")
         case .cleaning: .inserting(text: "Hello, world.")

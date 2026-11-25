@@ -13,8 +13,16 @@ import Foundation
 /// case, which is exactly the point: adding a state later makes the compiler walk
 /// us through each place that needs to know about it.
 enum RecordingState {
-    /// Waiting for the shortcut. The only state a new dictation may start from.
+    /// Waiting for the shortcut.
     case idle
+
+    /// The shortcut has fired and the microphone and transcription engine are
+    /// being opened. Brief, but not instantaneous — and emphatically not `idle`.
+    ///
+    /// Folding this into `idle` was a real bug: releasing the key during this
+    /// window asked a controller that believed it was idle to stop, which it
+    /// quietly declined to do. The microphone then opened and never closed.
+    case starting
 
     /// The microphone is live and audio is being captured.
     ///
@@ -46,7 +54,7 @@ extension RecordingState {
         switch self {
         case .idle, .failed:
             false
-        case .recording, .transcribing, .cleaning, .inserting:
+        case .starting, .recording, .transcribing, .cleaning, .inserting:
             true
         }
     }
@@ -55,6 +63,7 @@ extension RecordingState {
     var symbolName: String {
         switch self {
         case .idle: "waveform"
+        case .starting: "waveform.circle"
         case .recording: "waveform.circle.fill"
         case .transcribing: "ellipsis.circle"
         case .cleaning: "sparkles"
@@ -67,6 +76,7 @@ extension RecordingState {
     var statusDescription: String {
         switch self {
         case .idle: "Ready"
+        case .starting: "Starting…"
         case .recording: "Listening…"
         case .transcribing: "Transcribing…"
         case .cleaning: "Cleaning up…"

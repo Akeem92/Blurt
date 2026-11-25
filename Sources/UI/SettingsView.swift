@@ -19,11 +19,7 @@ struct SettingsView: View {
             }
 
             Tab("Transcription", systemImage: "waveform") {
-                ComingSoonPane(
-                    title: "Transcription",
-                    detail: "Engine and language. Apple SpeechAnalyzer first, others later.",
-                    step: 4
-                )
+                TranscriptionPane(controller: controller, preferences: preferences)
             }
 
             Tab("Cleanup", systemImage: "sparkles") {

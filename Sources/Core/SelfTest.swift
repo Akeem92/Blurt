@@ -4,6 +4,7 @@ import AVFoundation
 import Accelerate
 import Foundation
 import KeyboardShortcuts
+import Speech
 import Synchronization
 
 /// Headless checks, so behaviour that only shows up once real audio is flowing
@@ -27,9 +28,194 @@ enum SelfTest {
         case "--selftest-channels": await channelsTest()
         case "--selftest-pill": await pillTest()
         case "--selftest-shortcut": await shortcutTest()
+        case "--selftest-transcribe": await transcribeTest()
         default:
             FileHandle.standardError.write(Data("unknown self-test: \(name)\n".utf8))
             exit(64)
+        }
+    }
+
+    /// Transcribes synthesised speech and checks the words come back.
+    ///
+    /// The reason this exists: handing `SpeechAnalyzer` buffers in the wrong
+    /// audio format produces no error, no warning and no text. The failure is
+    /// indistinguishable from a microphone that heard nothing, and the
+    /// conversion that avoids it is written by hand here. Feeding it a sentence
+    /// whose words are known in advance is the only way to tell "the conversion
+    /// is right" from "the room was quiet".
+    ///
+    ///     --selftest-transcribe [--locale fr-FR] [--say "some sentence"]
+    @MainActor
+    private static func transcribeTest() async -> Never {
+        let localeID = value(after: "--locale") ?? "en-US"
+        let sentence = value(after: "--say") ?? "the quick brown fox jumps over the lazy dog"
+        let locale = Locale(identifier: localeID)
+
+        var engine = AppleDictationEngine()
+        engine.wantsPunctuation = false  // Keeps the comparison to words alone.
+
+        guard let resolved = await engine.resolve(locale) else {
+            print("FAIL  \(localeID) is not supported. Available: \(await engine.supportedLocales().map(\.identifier).sorted().joined(separator: ", "))")
+            exit(1)
+        }
+        print("      locale: \(localeID) → \(resolved.identifier)")
+        print("      readiness: \(await engine.readiness(for: resolved))")
+
+        if await engine.readiness(for: resolved) != .ready {
+            print("      downloading the model…")
+            do {
+                try await engine.prepare(resolved) { fraction in
+                    if fraction == 1 { print("      download complete") }
+                }
+            } catch {
+                print("FAIL  model download: \(error)")
+                exit(2)
+            }
+            print("      readiness now: \(await engine.readiness(for: resolved))")
+        }
+
+        guard let spoken = synthesise(sentence, locale: resolved) else {
+            print("FAIL  could not synthesise speech")
+            exit(2)
+        }
+        print("      spoken: \"\(sentence)\"")
+
+        // Diagnostics, because an empty transcript has several possible causes
+        // and they are indistinguishable from the outside.
+        let totalFrames = spoken.reduce(0) { $0 + Int($1.buffer.frameLength) }
+        let sourceFormat = spoken[0].buffer.format
+        var peak: Float = 0
+        for chunk in spoken {
+            if let data = chunk.buffer.floatChannelData {
+                peak = max(peak, vDSP.maximumMagnitude(
+                    UnsafeBufferPointer(start: data[0], count: Int(chunk.buffer.frameLength))
+                ))
+            }
+        }
+        print("      synthesised: \(spoken.count) chunks, \(totalFrames) frames, peak \(String(format: "%.3f", peak))")
+        print("      source format:   \(sourceFormat)")
+
+        let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(
+            compatibleWith: [DictationTranscriber(locale: resolved, preset: .progressiveShortDictation)]
+        )
+        print("      analyzer format: \(analyzerFormat.map(String.init(describing:)) ?? "none")")
+
+        guard peak > 0.001 else {
+            print("FAIL  the synthesised audio is silent — `say` produced nothing usable")
+            exit(2)
+        }
+
+        do {
+            let session = try await engine.beginSession(locale: resolved)
+
+            // Watch every update, so an empty final result can be told apart
+            // from a model that never said anything at all.
+            let watching = Task {
+                var count = 0
+                for await update in session.updates {
+                    count += 1
+                    print("      update \(count) [\(update.isSettled ? "final" : "volatile")]: \"\(update.text)\"")
+                }
+                if count == 0 { print("      (no updates were ever published)") }
+            }
+
+            // Fed in small chunks, as the microphone would, rather than in one
+            // lump — streaming is the path that actually runs in the app.
+            for chunk in spoken {
+                await session.feed(chunk)
+            }
+            let heard = try await session.finish()
+            _ = await watching.result
+            print("      heard:  \"\(heard)\"")
+
+            let expected = Set(words(of: sentence))
+            let got = Set(words(of: heard))
+            let matched = expected.intersection(got)
+            let ratio = Double(matched.count) / Double(max(expected.count, 1))
+            print(String(format: "      matched %d/%d words (%.0f%%)", matched.count, expected.count, ratio * 100))
+
+            if !expected.subtracting(got).isEmpty {
+                print("      missed: \(expected.subtracting(got).sorted().joined(separator: ", "))")
+            }
+
+            // Synthesised speech is not a human, so an exact match is the wrong
+            // bar. Most words coming back is enough to prove the audio reached
+            // the model in a format it could use — which is the whole question.
+            guard ratio >= 0.6 else {
+                print("FAIL  too few words came back — the audio is probably reaching the model in the wrong format")
+                exit(1)
+            }
+            print("PASS  transcription produced the expected words")
+            exit(0)
+        } catch {
+            print("FAIL  \(error)")
+            exit(1)
+        }
+    }
+
+    private static func value(after flag: String) -> String? {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: flag), index + 1 < arguments.count else {
+            return nil
+        }
+        return arguments[index + 1]
+    }
+
+    private static func words(of text: String) -> [String] {
+        text.lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count > 2 }
+    }
+
+    /// Speaks a sentence with `say` and reads it back as capture buffers.
+    private static func synthesise(_ sentence: String, locale: Locale) -> [CapturedBuffer]? {
+        let url = URL.temporaryDirectory.appending(path: "blurt-selftest-\(UUID().uuidString).caf")
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+        var arguments = ["-o", url.path, "--data-format=LEF32@48000", sentence]
+        if let voice = voiceName(for: locale) {
+            arguments.insert(contentsOf: ["-v", voice], at: 0)
+        }
+        process.arguments = arguments
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else { return nil }
+        } catch {
+            return nil
+        }
+
+        guard
+            let file = try? AVAudioFile(forReading: url),
+            let mono = AVAudioFormat(standardFormatWithSampleRate: file.processingFormat.sampleRate, channels: 1)
+        else { return nil }
+
+        var chunks: [CapturedBuffer] = []
+        let framesPerChunk: AVAudioFrameCount = 2048
+
+        while file.framePosition < file.length {
+            guard let scratch = AVAudioPCMBuffer(
+                pcmFormat: file.processingFormat,
+                frameCapacity: framesPerChunk
+            ) else { break }
+
+            do { try file.read(into: scratch, frameCount: framesPerChunk) } catch { break }
+            guard scratch.frameLength > 0 else { break }
+
+            if let captured = CapturedBuffer(copyingChannel0Of: scratch, as: mono) {
+                chunks.append(captured)
+            }
+        }
+        return chunks.isEmpty ? nil : chunks
+    }
+
+    private static func voiceName(for locale: Locale) -> String? {
+        switch locale.language.languageCode?.identifier {
+        case "fr": "Thomas"
+        default: nil
         }
     }
 
@@ -64,16 +250,32 @@ enum SelfTest {
             let started = Date.now
             await body()
 
-            for _ in 0..<80 where controller.lastRecordingURL == previous {
+            // Waits for the whole trip, transcription included — not just for the
+            // audio file to appear. The next scenario starts by pressing the
+            // shortcut, and a press that lands while the previous dictation is
+            // still being transcribed is correctly ignored.
+            var settled = false
+            for _ in 0..<160 {
+                if controller.lastRecordingURL != previous, !controller.state.isActive {
+                    settled = true
+                    break
+                }
                 try? await Task.sleep(for: .milliseconds(50))
             }
             guard controller.lastRecordingURL != previous else {
-                failures.append("\(label): no recording was produced")
+                failures.append("\(label): no recording was produced (state: \(controller.state))")
                 return nil
             }
 
             let elapsed = Date.now.timeIntervalSince(started)
-            print(String(format: "      %-20s %.2f s", (label as NSString).utf8String!, elapsed))
+            print(String(
+                format: "      %-20s %.2f s  →  %@%@",
+                (label as NSString).utf8String!,
+                elapsed,
+                "\(controller.state)",
+                settled ? "" : "  [TIMED OUT waiting to settle]"
+            ))
+            if !settled { failures.append("\(label): never settled") }
             return elapsed
         }
 
@@ -108,8 +310,19 @@ enum SelfTest {
             failures.append("toggle ended after only \(elapsed) s — the release was not ignored")
         }
 
-        if case .idle = controller.state {} else {
-            failures.append("ended in \(controller.state) rather than idle")
+        // The last scenario's transcription may still be finishing.
+        for _ in 0..<60 where controller.state.isActive {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+
+        // Nobody speaks during an automated run, so "no speech detected" is the
+        // correct outcome rather than a failure. What this checks is that the
+        // trip ends somewhere settled and not stuck mid-flight.
+        switch controller.state {
+        case .idle, .failed(.noSpeechDetected):
+            break
+        default:
+            failures.append("ended in \(controller.state) rather than settled")
         }
 
         UserDefaults.standard.removePersistentDomain(forName: suite)
@@ -162,8 +375,12 @@ enum SelfTest {
         print("      pill frame: \(pill.frame)")
         print("      canBecomeKey: \(pill.canBecomeKey)   isKeyWindow: \(pill.isKeyWindow)")
 
+        // The question is not whether focus moved — the person running this may
+        // well switch apps mid-test — but whether it moved *to Blurt*. That is
+        // the failure that would leave a dictation with nowhere to land.
         var failures: [String] = []
-        if during != before { failures.append("focus moved from \(before) to \(during)") }
+        let ownBundleID = Bundle.main.bundleIdentifier ?? "com.blurt.app"
+        if during == ownBundleID { failures.append("the pill brought Blurt to the front") }
         if pill.canBecomeKey { failures.append("pill can become key window") }
         if pill.isKeyWindow { failures.append("pill took the keyboard") }
 
@@ -361,7 +578,19 @@ enum SelfTest {
 
         print("      file: \(url.path)")
         print("      bytes: \(size.map(String.init) ?? "unreadable")")
-        print("      final state: \(controller.state)")
+        print("      state once the file appeared: \(controller.state)")
+
+        // How long the rest of the trip takes, transcription included. Silence is
+        // the awkward case: the engine has nothing to report and may not say so.
+        let settleStart = Date.now
+        for _ in 0..<200 where controller.state.isActive {
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        print(String(
+            format: "      settled after %.2f s in state %@",
+            Date.now.timeIntervalSince(settleStart),
+            "\(controller.state)"
+        ))
 
         // Two seconds of mono 32-bit float at 48 kHz is about 384 KB. Anything
         // near zero means the file was created but nothing reached it.

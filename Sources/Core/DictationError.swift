@@ -16,6 +16,12 @@ enum DictationError: Error, Equatable {
     /// Capture succeeded but held no speech worth transcribing.
     case noSpeechDetected
 
+    /// The engine does not handle the chosen language at all.
+    case languageUnsupported(String)
+
+    /// Supported, but the model has not been downloaded yet.
+    case modelNotInstalled(String)
+
     /// The transcription engine failed. The payload is for the log, not the user.
     case transcriptionFailed(reason: String)
 
@@ -35,6 +41,10 @@ extension DictationError: LocalizedError {
             "Blurt can't type into other apps"
         case .noSpeechDetected:
             "Didn't catch any speech"
+        case .languageUnsupported(let language):
+            "Can't transcribe \(language)"
+        case .modelNotInstalled(let language):
+            "The \(language) model isn't downloaded yet"
         case .transcriptionFailed:
             "Couldn't transcribe that"
         case .cleaningFailed:
@@ -52,6 +62,10 @@ extension DictationError: LocalizedError {
             "Allow Blurt under Privacy & Security → Accessibility in System Settings."
         case .noSpeechDetected:
             "Try again, a little closer to the microphone."
+        case .languageUnsupported:
+            "Pick another language under Transcription in Settings."
+        case .modelNotInstalled:
+            "Download it under Transcription in Settings."
         case .transcriptionFailed:
             "Try again. If it keeps happening, switch engines in Settings."
         case .cleaningFailed:

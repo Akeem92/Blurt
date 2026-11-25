@@ -13,6 +13,33 @@ final class Preferences {
         static let activationMode = "activationMode"
         static let voiceProcessing = "voiceProcessingEnabled"
         static let automaticGainControl = "automaticGainControlEnabled"
+        static let transcriptionLanguage = "transcriptionLanguage"
+        static let punctuation = "punctuationEnabled"
+        static let emoji = "emojiEnabled"
+    }
+
+    /// The language dictation is transcribed in.
+    ///
+    /// Chosen explicitly rather than following the system, because the language
+    /// someone's Mac is set to and the language they dictate in are routinely
+    /// different. The engine transcribes one language at a time and cannot switch
+    /// mid-sentence, so this is a real decision rather than a hint.
+    var transcriptionLanguage: String {
+        didSet { defaults.set(transcriptionLanguage, forKey: Key.transcriptionLanguage) }
+    }
+
+    var transcriptionLocale: Locale { Locale(identifier: transcriptionLanguage) }
+
+    /// Automatic punctuation, and punctuation you say out loud. Without it the
+    /// transcript is one unbroken run of words.
+    var isPunctuationEnabled: Bool {
+        didSet { defaults.set(isPunctuationEnabled, forKey: Key.punctuation) }
+    }
+
+    /// Turns "smiley face" into an emoji. Off by default — delightful when meant,
+    /// startling when not.
+    var isEmojiEnabled: Bool {
+        didSet { defaults.set(isEmojiEnabled, forKey: Key.emoji) }
     }
 
     var activationMode: ActivationMode {
@@ -45,5 +72,16 @@ final class Preferences {
         isAutomaticGainControlEnabled = defaults.object(forKey: Key.automaticGainControl) == nil
             ? true
             : defaults.bool(forKey: Key.automaticGainControl)
+
+        // The system language is only the opening suggestion; once chosen, the
+        // setting stands on its own.
+        transcriptionLanguage = defaults.string(forKey: Key.transcriptionLanguage)
+            ?? Locale.current.identifier(.bcp47)
+
+        isPunctuationEnabled = defaults.object(forKey: Key.punctuation) == nil
+            ? true
+            : defaults.bool(forKey: Key.punctuation)
+
+        isEmojiEnabled = defaults.bool(forKey: Key.emoji)
     }
 }

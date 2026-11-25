@@ -34,9 +34,12 @@ final class RecordingPillPresenter {
     }
 
     private func update() {
-        if case .recording = controller.state {
+        switch controller.state {
+        case .starting, .recording, .transcribing, .cleaning, .inserting:
+            // Stays up past the end of recording: transcription finishes a beat
+            // later, and the pill is where the last words land.
             show()
-        } else {
+        case .idle, .failed:
             hide()
         }
     }
@@ -46,13 +49,12 @@ final class RecordingPillPresenter {
     private func show() {
         guard panel == nil else { return }
 
-        let pill = RecordingPill(meter: controller.capture.level)
-        let hosting = NSHostingView(rootView: pill)
-        hosting.frame = CGRect(origin: .zero, size: RecordingPill.Layout.size)
+        let hosting = NSHostingView(rootView: RecordingPill(controller: controller))
+        hosting.frame = CGRect(origin: .zero, size: RecordingPill.Layout.windowSize)
 
         let panel = NonActivatingPanel(contentRect: hosting.frame)
         panel.contentView = hosting
-        panel.setFrameOrigin(Self.restingOrigin(for: RecordingPill.Layout.size))
+        panel.setFrameOrigin(Self.restingOrigin(for: RecordingPill.Layout.windowSize))
 
         // orderFront, never makeKeyAndOrderFront: showing the pill must not take
         // the keyboard away from whatever the user is typing into.
