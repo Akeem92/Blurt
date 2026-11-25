@@ -54,7 +54,13 @@ final class AudioDucking {
             return
         }
         restoreTo = current
-        leftAt = duckedLevel
+
+        // What the device actually kept, not what was asked for. macOS snaps the
+        // volume to steps of roughly six percent, so asking for 0.10 can leave
+        // 0.125 behind. Comparing the requested value to that on the way out
+        // looked like the user had moved the volume, so the restore was skipped
+        // and the Mac stayed quiet until they turned it up by hand.
+        leftAt = Self.volume(of: device) ?? duckedLevel
     }
 
     func restore() {
@@ -65,11 +71,15 @@ final class AudioDucking {
         }
         guard let device = Self.defaultOutputDevice() else { return }
 
-        // If the volume is no longer where we left it, the user moved it while
-        // we were ducked. Their choice wins; putting the old level back would
-        // undo a deliberate action.
-        if let leftAt, let current = Self.volume(of: device), abs(current - leftAt) > 0.02 {
-            log.notice("Volume was changed while ducked; leaving it as the user set it")
+        // Stand aside only when the user turned the volume *up* while we were
+        // ducked — a deliberate act worth respecting. Deliberately one-sided:
+        // being wrong in this direction leaves a Mac that is briefly too loud,
+        // which anyone fixes in one gesture, while being wrong in the other
+        // leaves it mysteriously quiet with nothing to explain why. The
+        // tolerance is a full step of the system volume, so snapping can never
+        // be mistaken for intent.
+        if let leftAt, let current = Self.volume(of: device), current > leftAt + 0.07 {
+            log.notice("Volume was raised while ducked; leaving it as the user set it")
             return
         }
 
