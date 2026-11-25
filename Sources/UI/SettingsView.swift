@@ -27,11 +27,7 @@ struct SettingsView: View {
             }
 
             Tab("Cleanup", systemImage: "sparkles") {
-                ComingSoonPane(
-                    title: "Cleanup",
-                    detail: "Punctuation and filler removal, plus optional polishing by Claude.",
-                    step: 6
-                )
+                CleanupPane(preferences: preferences)
             }
 
             Tab("Appearance", systemImage: "paintpalette") {

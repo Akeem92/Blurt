@@ -38,7 +38,7 @@ text field.
 | 3 | Configurable global shortcut, hold-to-talk and toggle | ✅ done |
 | 4 | On-device transcription, live in the pill | ✅ done |
 | 5 | Insertion into the frontmost app, pausing other audio | ✅ done |
-| 6 | Cleanup: punctuation and fillers, optional Claude polish | — |
+| 6 | Cleanup: fillers, typography, optional Claude polish | ✅ done |
 | 7 | Full settings: colours, languages, history, custom dictionary | — |
 
 Later: Parakeet and Whisper engines, per-app writing styles, a personal
@@ -115,6 +115,7 @@ Blurt.app/Contents/MacOS/Blurt --selftest-shortcut     # both activation modes
 Blurt.app/Contents/MacOS/Blurt --selftest-pill         # the pill never takes focus
 Blurt.app/Contents/MacOS/Blurt --selftest-clipboard    # the clipboard round trip
 Blurt.app/Contents/MacOS/Blurt --selftest-media        # playback detection
+Blurt.app/Contents/MacOS/Blurt --selftest-cleanup      # the cleanup rules
 ```
 
 Between them they have caught a crash on the first audio buffer, empty

@@ -256,17 +256,19 @@ final class DictationController {
             }
             stoppedAt = nil
 
-            lastTranscript = trimmed
-            liveTranscript = trimmed
+            state = .cleaning(raw: trimmed)
+            let cleaned = await cleanedUp(trimmed)
 
-            // Step 6 will clean the text on its way through here.
-            state = .inserting(text: trimmed)
+            lastTranscript = cleaned
+            liveTranscript = cleaned
+
+            state = .inserting(text: cleaned)
             do {
-                try await inserter.insert(trimmed)
+                try await inserter.insert(cleaned)
                 settle(.idle)
             } catch {
-                // The text is on the clipboard either way, so nothing is lost —
-                // the failure is about delivery, not about the words.
+                // The words are kept in `lastTranscript` either way, so nothing
+                // is lost — the failure is about delivery, not about the text.
                 settle(.failed((error as? DictationError) ?? .insertionFailed(reason: "\(error)")))
             }
         } catch {
@@ -274,6 +276,68 @@ final class DictationController {
             transcriptTask?.cancel()
             transcriptTask = nil
             settle(.failed(.transcriptionFailed(reason: "\(error)")))
+        }
+    }
+
+    // MARK: - Cleanup
+
+    /// Rules always, then Claude when it is switched on and reachable.
+    ///
+    /// Layered rather than either/or: the rules are instant and offline, and
+    /// their output is what gets pasted whenever the Claude pass is off, has no
+    /// key, fails, or simply takes too long.
+    private func cleanedUp(_ raw: String) async -> String {
+        let locale = preferences.transcriptionLocale
+        var text = raw
+
+        var rules = RuleBasedCleaner()
+        rules.removesFillers = preferences.removesFillers
+        rules.appliesFrenchTypography = preferences.appliesLocalTypography
+        if let ruled = try? await rules.clean(text, locale: locale), !ruled.isEmpty {
+            text = ruled
+        }
+
+        guard preferences.usesClaudeCleanup, let key = APIKeyStore.load() else {
+            return text
+        }
+
+        // Bounded, because this is the one part of a dictation that reaches the
+        // network. A slow connection must cost a little polish, never the
+        // dictation itself — and an unbounded await here is exactly the mistake
+        // that wedged transcription earlier.
+        let ruled = text
+        let polished = await withTimeout(Self.cleanupTimeout) {
+            try await ClaudeCleaner(apiKey: key).clean(ruled, locale: locale)
+        }
+
+        guard let polished, !polished.isEmpty else {
+            log.notice("Claude cleanup unavailable; using the rule-cleaned text")
+            return text
+        }
+        return polished
+    }
+
+    private static let cleanupTimeout = Duration.seconds(4)
+
+    /// Runs an operation, giving up after a deadline.
+    ///
+    /// A task group would be wrong here for the reason it was wrong in the
+    /// transcription engine — a group waits for every child — but a `URLSession`
+    /// request does honour cancellation, so cancelling the loser genuinely ends
+    /// it.
+    private func withTimeout<T: Sendable>(
+        _ limit: Duration,
+        _ operation: @escaping @Sendable () async throws -> T
+    ) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { try? await operation() }
+            group.addTask {
+                try? await Task.sleep(for: limit)
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
         }
     }
 

@@ -31,10 +31,89 @@ enum SelfTest {
         case "--selftest-transcribe": await transcribeTest()
         case "--selftest-clipboard": await clipboardTest()
         case "--selftest-media": await mediaTest()
+        case "--selftest-cleanup": await cleanupTest()
         default:
             FileHandle.standardError.write(Data("unknown self-test: \(name)\n".utf8))
             exit(64)
         }
+    }
+
+    /// Checks the rule-based cleaner against known inputs.
+    ///
+    /// Regular expressions over natural language are a minefield: the case that
+    /// matters most here is that stripping the filler "heu" must not hollow out
+    /// "heureux". Every case below is one a plausible implementation gets wrong.
+    @MainActor
+    private static func cleanupTest() async -> Never {
+        let narrow = "\u{202F}"   // espace fine insécable
+        let full = "\u{00A0}"     // espace insécable
+
+        let cases: [(locale: String, input: String, expected: String, why: String)] = [
+            ("fr-FR", "euh donc on y va", "Donc on y va",
+             "filler removed, sentence capitalised"),
+            ("fr-FR", "hum, je pense que oui", "Je pense que oui",
+             "filler took its trailing comma with it"),
+            ("fr-FR", "je suis heureux de te voir", "Je suis heureux de te voir",
+             "\"heu\" inside \"heureux\" must survive"),
+            ("fr-FR", "c'est noté : on se voit demain",
+             "C'est noté\(full): on se voit demain",
+             "non-breaking space before a colon in French"),
+            ("fr-FR", "tu viens ? vraiment !",
+             "Tu viens\(narrow)? vraiment\(narrow)!",
+             "narrow non-breaking space before ? and !"),
+            ("en-US", "are you coming ? really !", "Are you coming? really!",
+             "English takes no space before them"),
+            ("fr-FR", "trop    d'espaces   ici", "Trop d'espaces ici",
+             "runs of spaces collapse"),
+            ("fr-FR", "un mot ,puis un autre", "Un mot, puis un autre",
+             "space moved to the right side of the comma"),
+        ]
+
+        var failures = 0
+        for test in cases {
+            var cleaner = RuleBasedCleaner()
+            cleaner.removesFillers = true
+            cleaner.appliesFrenchTypography = true
+
+            let got = (try? await cleaner.clean(test.input, locale: Locale(identifier: test.locale))) ?? ""
+            let ok = got == test.expected
+
+            print("      \(ok ? "ok  " : "FAIL") \(test.why)")
+            if !ok {
+                failures += 1
+                print("           in:       \(visible(test.input))")
+                print("           expected: \(visible(test.expected))")
+                print("           got:      \(visible(got))")
+            }
+        }
+
+        // Running twice must change nothing. A typography rule that adds a space
+        // without first removing the one already there drifts a little further
+        // every pass.
+        var cleaner = RuleBasedCleaner()
+        let once = (try? await cleaner.clean("c'est noté : vraiment ?", locale: Locale(identifier: "fr-FR"))) ?? ""
+        let twice = (try? await cleaner.clean(once, locale: Locale(identifier: "fr-FR"))) ?? ""
+        if once != twice {
+            failures += 1
+            print("      FAIL cleaning twice changed the text")
+            print("           once:  \(visible(once))")
+            print("           twice: \(visible(twice))")
+        } else {
+            print("      ok   cleaning twice changes nothing")
+        }
+
+        guard failures == 0 else {
+            print("FAIL  \(failures) cleanup rule(s) misbehaved")
+            exit(1)
+        }
+        print("PASS  the cleanup rules do what they claim")
+        exit(0)
+    }
+
+    /// Makes invisible spaces visible, so a diff of two strings can be read.
+    private static func visible(_ text: String) -> String {
+        text.replacingOccurrences(of: "\u{202F}", with: "[narrow]")
+            .replacingOccurrences(of: "\u{00A0}", with: "[nbsp]")
     }
 
     /// Checks that Blurt can tell whether anything is actually playing.

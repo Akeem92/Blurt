@@ -17,6 +17,27 @@ final class Preferences {
         static let punctuation = "punctuationEnabled"
         static let emoji = "emojiEnabled"
         static let pauseOtherAudio = "pauseOtherAudio"
+        static let removeFillers = "removeFillers"
+        static let localTypography = "localTypography"
+        static let claudeCleanup = "claudeCleanup"
+    }
+
+    /// Strip "euh", "hum" and friends. Always on by default: they are sounds,
+    /// not words, and nobody means to type them.
+    var removesFillers: Bool {
+        didSet { defaults.set(removesFillers, forKey: Key.removeFillers) }
+    }
+
+    /// Typographic conventions of the dictation language — in French, the space
+    /// before `; ! ? :` that English-trained models never produce.
+    var appliesLocalTypography: Bool {
+        didSet { defaults.set(appliesLocalTypography, forKey: Key.localTypography) }
+    }
+
+    /// Send the transcript to Claude for a conservative tidy-up. Off until a key
+    /// is supplied, because it is the only thing in Blurt that leaves the Mac.
+    var usesClaudeCleanup: Bool {
+        didSet { defaults.set(usesClaudeCleanup, forKey: Key.claudeCleanup) }
     }
 
     /// Pause whatever is playing for the length of a dictation, then start it
@@ -94,5 +115,15 @@ final class Preferences {
         pausesOtherAudio = defaults.object(forKey: Key.pauseOtherAudio) == nil
             ? true
             : defaults.bool(forKey: Key.pauseOtherAudio)
+
+        removesFillers = defaults.object(forKey: Key.removeFillers) == nil
+            ? true
+            : defaults.bool(forKey: Key.removeFillers)
+
+        appliesLocalTypography = defaults.object(forKey: Key.localTypography) == nil
+            ? true
+            : defaults.bool(forKey: Key.localTypography)
+
+        usesClaudeCleanup = defaults.bool(forKey: Key.claudeCleanup)
     }
 }
