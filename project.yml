@@ -38,6 +38,18 @@ targets:
         NSHumanReadableCopyright: "Blurt — MIT licensed"
         # Menu bar app: no Dock icon, no main window, no app switcher entry.
         LSUIElement: true
+        # Shown in the system prompt the first time the microphone is touched.
+        NSMicrophoneUsageDescription: >-
+          Blurt listens to your microphone so it can turn what you say into text.
+          Audio is processed on this Mac and never leaves it.
+
+    # Under the hardened runtime, the usage description above is not enough: with
+    # no audio-input entitlement in the signature, macOS denies the microphone
+    # outright and never even shows the user a prompt.
+    entitlements:
+      path: Support/Blurt.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
 
     settings:
       base:

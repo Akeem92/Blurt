@@ -10,8 +10,8 @@ app is fully usable without ever touching the network.
 It is a free, open alternative to Wispr Flow and a cousin of
 [Handy](https://handy.computer/).
 
-> **Status: early.** Step 1 of 7 is done — the app launches and sits in the menu
-> bar, but it does not record or transcribe anything yet. See [Roadmap](#roadmap).
+> **Status: early.** The app records audio and can play it back to you, but it
+> does not transcribe anything yet. See [Roadmap](#roadmap).
 
 ## Why
 
@@ -32,7 +32,8 @@ text field.
 | Step | What it adds | Status |
 |-----:|--------------|--------|
 | 1 | Menu-bar skeleton, settings window, state machine | ✅ done |
-| 2 | Microphone capture, live input level, recording pill | — |
+| 2a | Microphone permission, capture, live input level | ✅ done |
+| 2b | The floating recording pill | — |
 | 3 | Configurable global shortcut, hold-to-talk and toggle | — |
 | 4 | Transcription via Apple SpeechAnalyzer | — |
 | 5 | Insertion into the frontmost app — **first usable build** | — |
@@ -41,6 +42,24 @@ text field.
 
 Later: Parakeet and Whisper engines, per-app writing styles, a personal
 dictionary for names and jargon, voice commands over selected text.
+
+## Details that matter
+
+Dictation lives or dies on small courtesies. These are tracked as features, not
+polish:
+
+- **Get out of the way of whatever is playing.** Start a dictation over music or
+  a video and the other audio should quieten or pause, then come back by itself.
+  Apple's voice-processing unit ducks other apps on the same output for free, and
+  brings echo cancellation and noise suppression with it; a true pause needs
+  CoreAudio process inspection and is being weighed against it.
+- **Never steal focus.** The recording pill has to be a non-activating panel.
+  The moment the overlay takes focus, the app that was supposed to receive the
+  text is no longer frontmost and the dictation has nowhere to land.
+- **Leave the clipboard as you found it.** Insertion goes through the clipboard,
+  so whatever was in it is saved and put back afterwards.
+- **Never lose words.** A failure anywhere after transcription still leaves the
+  text somewhere reachable — the clipboard, or the history.
 
 ## Design notes
 

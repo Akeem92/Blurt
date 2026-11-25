@@ -17,10 +17,13 @@ enum RecordingState {
     case idle
 
     /// The microphone is live and audio is being captured.
-    /// - Parameters:
-    ///   - since: when capture began, for the elapsed-time readout.
-    ///   - level: current input level, 0...1, for the waveform.
-    case recording(since: Date, level: Float)
+    ///
+    /// The input level is deliberately *not* here. It changes sixty times a
+    /// second to animate a waveform, and routing that through the state machine
+    /// would mean sixty state changes a second to say "still recording". It lives
+    /// in `AudioLevelMeter` instead, on its own clock. States change when
+    /// something changes; levels are sampled.
+    case recording(since: Date)
 
     /// Capture is finished; audio is being turned into text.
     case transcribing

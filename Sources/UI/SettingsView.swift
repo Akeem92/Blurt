@@ -5,14 +5,12 @@ import SwiftUI
 /// The tabs are laid out now and filled in as each step lands, so the shape of
 /// the finished app is visible from the first build instead of being guessed at.
 struct SettingsView: View {
+    let controller: DictationController
+
     var body: some View {
         TabView {
-            Tab("General", systemImage: "gearshape") {
-                ComingSoonPane(
-                    title: "General",
-                    detail: "Launch at login, microphone selection, dictation history.",
-                    step: 7
-                )
+            Tab("Microphone", systemImage: "mic") {
+                MicrophonePane(controller: controller)
             }
 
             Tab("Shortcut", systemImage: "command") {
@@ -47,7 +45,7 @@ struct SettingsView: View {
                 )
             }
         }
-        .frame(width: 480, height: 300)
+        .frame(width: 500, height: 360)
     }
 }
 
@@ -81,5 +79,5 @@ private struct ComingSoonPane: View {
 }
 
 #Preview {
-    SettingsView()
+    SettingsView(controller: DictationController())
 }

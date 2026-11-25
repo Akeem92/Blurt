@@ -19,7 +19,7 @@ struct BlurtApp: App {
         }
 
         Settings {
-            SettingsView()
+            SettingsView(controller: controller)
         }
     }
 }
