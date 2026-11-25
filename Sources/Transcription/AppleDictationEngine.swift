@@ -1,6 +1,7 @@
 import Foundation
 import Speech
 import AVFoundation
+import CoreMedia
 import OSLog
 
 /// Transcription through Apple's on-device speech models.
@@ -24,6 +25,18 @@ struct AppleDictationEngine: TranscriptionEngine {
     /// Turns "smiley face" into an emoji. Off by default: delightful when meant,
     /// startling when not.
     var wantsEmoji = false
+
+    /// Tell the model to expect short utterances — someone addressing their
+    /// computer rather than dictating prose.
+    ///
+    /// Worth questioning rather than assuming. It was set because "dictation
+    /// app" sounded like short bursts, but a hint that the input is short can
+    /// work against whole sentences, where context across several seconds is
+    /// what resolves a French homophone.
+    var expectsShortUtterances = true
+
+    /// Ask the recogniser for the other readings it considered.
+    var wantsAlternatives = false
 
     private let log = Logger(subsystem: "com.blurt.app", category: "transcription")
 
@@ -96,13 +109,13 @@ struct AppleDictationEngine: TranscriptionEngine {
 
         return DictationTranscriber(
             locale: locale,
-            // Short form tells the model to expect someone talking to their
-            // computer, not a lecture.
-            contentHints: [.shortForm],
+            contentHints: expectsShortUtterances ? [.shortForm] : [],
             transcriptionOptions: transcriptionOptions,
             // Volatile results are the live guess that firms up as more is heard —
             // what makes text appear while you are still speaking.
-            reportingOptions: [.volatileResults],
+            reportingOptions: wantsAlternatives
+                ? [.volatileResults, .alternativeTranscriptions]
+                : [.volatileResults],
             attributeOptions: []
         )
     }
@@ -183,10 +196,33 @@ actor AppleDictationSession: TranscriptionSession {
             var settled = AttributedString()
             var pending = AttributedString()
 
+            // How far through the audio the settled text reaches.
+            //
+            // Results are not a stream of new fragments: a final result can
+            // restate a stretch that has already been settled, and the one
+            // produced by finalisation often restates the *whole* utterance.
+            // Appending every final blindly wrote the entire dictation twice —
+            // which reads as gibberish and is worse than any single misheard
+            // word. Each result carries the range of audio it describes, and
+            // that range is what says whether it is new text or the same text
+            // again.
+            var settledThrough = CMTime.zero
+
             do {
                 for try await result in transcriber.results {
                     if result.isFinal {
-                        settled += result.text
+                        if result.range.start >= settledThrough {
+                            // Fresh ground: this covers audio nothing has claimed.
+                            settled += result.text
+                            settledThrough = result.range.end
+                        } else if result.range.start == .zero, result.range.end > settledThrough {
+                            // A restatement of everything heard so far, usually
+                            // the model's final word on the whole utterance.
+                            // It supersedes rather than extends.
+                            settled = result.text
+                            settledThrough = result.range.end
+                        }
+                        // Anything else repeats ground already covered: ignore it.
                         pending = AttributedString()
                     } else {
                         pending = result.text
@@ -196,7 +232,8 @@ actor AppleDictationSession: TranscriptionSession {
                     await self?.remember(text)
                     publish.yield(TranscriptionUpdate(
                         text: text,
-                        isSettled: pending.characters.isEmpty
+                        isSettled: pending.characters.isEmpty,
+                        alternatives: result.alternatives.map { String($0.characters) }
                     ))
                 }
             } catch {

@@ -32,9 +32,161 @@ enum SelfTest {
         case "--selftest-clipboard": await clipboardTest()
         case "--selftest-media": await mediaTest()
         case "--selftest-cleanup": await cleanupTest()
+        case "--selftest-mic": await micTest()
         default:
             FileHandle.standardError.write(Data("unknown self-test: \(name)\n".utf8))
             exit(64)
+        }
+    }
+
+    /// Records from the real microphone and prints what the model heard.
+    ///
+    /// Not a pass/fail check — a bench. Transcription quality cannot be judged
+    /// from an impression after the fact, because every run differs in what was
+    /// said and how. Reading the *same* sentence under one changed setting at a
+    /// time is the only way to tell a real improvement from a good take.
+    ///
+    ///     --selftest-mic [--seconds 8] [--voice-processing] [--long-form] [--live]
+    @MainActor
+    private static func micTest() async -> Never {
+        guard MicrophoneAccess.status == .granted else {
+            print("FAIL  microphone not granted")
+            exit(3)
+        }
+
+        let seconds = value(after: "--seconds").flatMap(Int.init) ?? 8
+        let localeID = value(after: "--locale")
+            ?? UserDefaults.standard.string(forKey: "transcriptionLanguage")
+            ?? Locale.current.identifier(.bcp47)
+        let locale = Locale(identifier: localeID)
+
+        var engine = AppleDictationEngine()
+        engine.wantsPunctuation = true
+        engine.expectsShortUtterances = !CommandLine.arguments.contains("--long-form")
+        engine.wantsAlternatives = CommandLine.arguments.contains("--alternatives")
+
+        let capture = AudioCaptureService()
+        capture.isVoiceProcessingEnabled = CommandLine.arguments.contains("--voice-processing")
+
+        guard let resolved = await engine.resolve(locale) else {
+            print("FAIL  \(localeID) is not supported")
+            exit(1)
+        }
+
+        print("      language:          \(resolved.identifier)")
+        print("      microphone:        \(AVCaptureDevice.default(for: .audio)?.localizedName ?? "none")")
+        print("      voice processing:  \(capture.isVoiceProcessingEnabled)")
+        print("      short-form hint:   \(engine.expectsShortUtterances)")
+        print()
+
+        let session: any TranscriptionSession
+        do {
+            session = try await engine.beginSession(locale: resolved)
+        } catch {
+            print("FAIL  \(error)")
+            exit(1)
+        }
+
+        let showsLive = CommandLine.arguments.contains("--live")
+        var sawFinalResult = false
+        var alternatives: [String] = []
+        let watching = Task {
+            for await update in session.updates {
+                if update.isSettled { sawFinalResult = true }
+                for alternative in update.alternatives where !alternatives.contains(alternative) {
+                    alternatives.append(alternative)
+                }
+                if showsLive { print("      · \(update.text)") }
+            }
+        }
+
+        print("      SPEAK NOW — \(seconds) seconds")
+        var peak: Float = 0
+        do {
+            let buffers = try capture.start()
+            let feeding = Task.detached {
+                for await captured in buffers { await session.feed(captured) }
+            }
+
+            for _ in 0..<(seconds * 10) {
+                try? await Task.sleep(for: .milliseconds(100))
+                peak = max(peak, capture.level.load())
+            }
+
+            capture.stop()
+            _ = await feeding.result
+        } catch {
+            print("FAIL  could not open the microphone: \(error)")
+            exit(2)
+        }
+
+        let heard = (try? await session.finish()) ?? ""
+        _ = await watching.result
+
+        print()
+        print(String(format: "      peak input level:  %.2f  %@", peak, peakVerdict(peak)))
+        print("      model finalised:   \(sawFinalResult ? "yes" : "no — the text below is its last guess")")
+        print("      words:             \(heard.split(separator: " ").count)")
+        print()
+        print("      heard: \(heard.isEmpty ? "(nothing)" : heard)")
+
+        // The whole question for a homophone is whether the right reading was
+        // ever on the table. If it is here, meaning can settle it; if not, no
+        // amount of cleverness downstream will recover it.
+        if engine.wantsAlternatives {
+            print()
+            if alternatives.isEmpty {
+                print("      alternatives: none offered")
+            } else {
+                print("      alternatives the recogniser also considered:")
+                for alternative in alternatives.prefix(12) {
+                    print("        · \(alternative)")
+                }
+            }
+        }
+
+        // The cleanup passes, shown as changes rather than as a finished result.
+        // A tidy-up that quietly alters meaning reads as perfectly fluent, so
+        // the only way to catch it is to put the two side by side.
+        if CommandLine.arguments.contains("--cleanup"), !heard.isEmpty {
+            var rules = RuleBasedCleaner()
+            rules.appliesFrenchTypography = true
+            let ruled = (try? await rules.clean(heard, locale: resolved)) ?? heard
+            print()
+            print("      rules: \(ruled)")
+            if ruled == heard { print("             (no change)") }
+
+            if let key = APIKeyStore.load() {
+                print()
+                print("      asking Claude… (this spends a fraction of a cent)")
+                do {
+                    let polished = try await ClaudeCleaner(apiKey: key).clean(ruled, locale: resolved)
+                    print("      claude: \(polished)")
+                    if polished == ruled {
+                        print("              (no change)")
+                    } else {
+                        print()
+                        print("      → Claude changed the text. Read both carefully: a rewrite")
+                        print("        that alters meaning still reads perfectly well.")
+                    }
+                } catch {
+                    print("      claude: failed — \(error)")
+                }
+            } else {
+                print()
+                print("      no API key stored, so the Claude pass was skipped")
+            }
+        }
+        exit(0)
+    }
+
+    /// Whether the signal reaching the model is worth transcribing at all.
+    private static func peakVerdict(_ peak: Float) -> String {
+        switch peak {
+        case ..<0.25: "— very quiet, the model is working from almost nothing"
+        case ..<0.45: "— quiet"
+        case ..<0.95: "— good"
+        default: "— clipping, which the model also struggles with"
         }
     }
 

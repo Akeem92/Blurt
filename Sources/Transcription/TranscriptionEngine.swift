@@ -9,6 +9,15 @@ struct TranscriptionUpdate: Sendable {
 
     /// False while the tail of `text` is still a guess the model may revise.
     let isSettled: Bool
+
+    /// Other readings the recogniser considered for this stretch of audio.
+    ///
+    /// Empty unless asked for. Where it earns its place is the homophone: the
+    /// recogniser hears something ambiguous and picks the more common phrasing,
+    /// and the alternative it set aside is the one that actually makes sense.
+    /// Knowing what else was heard is what lets that be settled by meaning
+    /// rather than guessed at.
+    var alternatives: [String] = []
 }
 
 /// Whether a language can be transcribed on this machine right now.
