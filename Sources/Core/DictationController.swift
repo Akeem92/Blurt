@@ -51,8 +51,10 @@ final class DictationController {
 
         do {
             let buffers = try capture.start()
-            guard let format = capture.captureFormat else {
-                state = .failed(.transcriptionFailed(reason: "No capture format"))
+            // The *delivery* format, not the capture format: buffers arrive mono
+            // whatever the input node is configured as.
+            guard let format = capture.deliveryFormat else {
+                state = .failed(.transcriptionFailed(reason: "No delivery format"))
                 return
             }
 

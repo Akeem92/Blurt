@@ -13,23 +13,36 @@ import AVFoundation
 /// the duration of the callback and is free to reuse the memory afterwards;
 /// retaining it would mean reading audio that has already been overwritten.
 struct CapturedBuffer: @unchecked Sendable {
+    /// Always mono, whatever the input node happened to hand over.
     let buffer: AVAudioPCMBuffer
 
-    /// Deep-copies a tap buffer so it outlives the callback.
+    /// Deep-copies the first channel of a tap buffer into a mono buffer.
+    ///
+    /// Mono is not a simplification, it is a normalisation. Switching Apple's
+    /// voice processing on changes the input node from one channel to three:
+    /// the processed microphone plus reference channels the echo canceller
+    /// works from. Those extra channels are plumbing, not speech. Passing them
+    /// downstream would make recordings with and without voice processing
+    /// incomparable, and would have to be undone again before transcription,
+    /// which wants one channel.
+    ///
+    /// Channel 0 is the processed microphone signal in both configurations.
+    ///
     /// Returns `nil` for non-float formats, which the input node does not produce.
-    init?(copying source: AVAudioPCMBuffer) {
+    init?(copyingChannel0Of source: AVAudioPCMBuffer, as format: AVAudioFormat) {
         guard
-            let copy = AVAudioPCMBuffer(pcmFormat: source.format, frameCapacity: source.frameLength),
+            source.format.sampleRate == format.sampleRate,
+            let copy = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: source.frameLength),
             let destination = copy.floatChannelData,
             let origin = source.floatChannelData
         else { return nil }
 
         copy.frameLength = source.frameLength
-
-        let bytes = Int(source.frameLength) * MemoryLayout<Float>.size
-        for channel in 0..<Int(source.format.channelCount) {
-            memcpy(destination[channel], origin[channel], bytes)
-        }
+        memcpy(
+            destination[0],
+            origin[0],
+            Int(source.frameLength) * MemoryLayout<Float>.size
+        )
 
         self.buffer = copy
     }

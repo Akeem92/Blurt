@@ -25,8 +25,14 @@ final class AudioCaptureService {
     private let engine = AVAudioEngine()
     private var continuation: AsyncStream<CapturedBuffer>.Continuation?
 
-    /// Format the microphone is currently delivering. Only meaningful while running.
+    /// Format the input node is currently delivering. With voice processing on,
+    /// this is three channels: the processed microphone plus echo-canceller
+    /// reference channels.
     private(set) var captureFormat: AVAudioFormat?
+
+    /// Format the buffers in the stream actually arrive in: always mono, so the
+    /// rest of the app never has to care which way voice processing is set.
+    private(set) var deliveryFormat: AVAudioFormat?
 
     var isRunning: Bool { engine.isRunning }
 
@@ -53,6 +59,11 @@ final class AudioCaptureService {
         }
         captureFormat = format
 
+        guard let mono = AVAudioFormat(standardFormatWithSampleRate: format.sampleRate, channels: 1) else {
+            throw CaptureFailure.noInputDevice
+        }
+        deliveryFormat = mono
+
         // Unbounded: dropping microphone audio to save memory would mean losing
         // words. A dictation is seconds long, so the buffer cannot grow far.
         let (stream, continuation) = AsyncStream<CapturedBuffer>.makeStream(
@@ -60,13 +71,28 @@ final class AudioCaptureService {
         )
         self.continuation = continuation
 
-        // Captured explicitly so the closure holds Sendable values only, never
-        // `self`. 2048 frames is roughly 43 ms at 48 kHz: frequent enough for a
+        // `@Sendable` on this closure is load-bearing, and its absence does not
+        // fail to compile — it crashes on the first buffer.
+        //
+        // `AVAudioNodeTapBlock` carries no `@Sendable` annotation in the SDK, so
+        // without one here Swift infers the closure to be isolated to this type's
+        // actor, the main actor. It does not complain: it quietly inserts a
+        // runtime isolation check. AVFoundation then calls the block from its own
+        // audio queue, the check fails, and the process traps with
+        // `dispatch_assert_queue_fail`. Compiles clean, dies the instant real
+        // audio arrives.
+        //
+        // `@Sendable` states the truth — this runs anywhere — so no check is
+        // inserted, and in exchange the compiler now verifies that everything
+        // captured is safe to send. Hence capturing `meter` and `continuation`
+        // explicitly rather than reaching through `self`.
+        //
+        // 2048 frames is roughly 43 ms at 48 kHz: frequent enough for a
         // responsive waveform, large enough not to wake the consumer constantly.
         let meter = level
-        input.installTap(onBus: 0, bufferSize: 2048, format: format) { buffer, _ in
+        input.installTap(onBus: 0, bufferSize: 2048, format: format) { @Sendable buffer, _ in
             meter.store(Self.normalizedLevel(of: buffer))
-            if let captured = CapturedBuffer(copying: buffer) {
+            if let captured = CapturedBuffer(copyingChannel0Of: buffer, as: mono) {
                 continuation.yield(captured)
             }
         }
@@ -79,6 +105,7 @@ final class AudioCaptureService {
             continuation.finish()
             self.continuation = nil
             captureFormat = nil
+            deliveryFormat = nil
             throw CaptureFailure.engineFailed(error.localizedDescription)
         }
 
@@ -93,6 +120,7 @@ final class AudioCaptureService {
         continuation?.finish()
         continuation = nil
         captureFormat = nil
+        deliveryFormat = nil
         level.store(0)
     }
 
@@ -103,11 +131,16 @@ final class AudioCaptureService {
     /// Runs on the audio thread, so: no allocation, no locks, no Foundation.
     /// `vDSP` does the sum of squares in vectorised form in a single call.
     ///
+    /// `nonisolated` is required, not decorative. A `static` member of a
+    /// `@MainActor` type inherits that isolation — even one that is pure
+    /// arithmetic and touches no state. Calling it from the audio thread without
+    /// this keyword is what trapped the process.
+    ///
     /// The decibel conversion is what makes the result feel right. Raw amplitude
     /// is linear, but hearing is logarithmic: normal speech sits around 0.05
     /// amplitude and would barely move a linear bar. Mapping −50 dB...0 dB onto
     /// 0...1 puts conversation in the middle of the range, where it belongs.
-    private static func normalizedLevel(of buffer: AVAudioPCMBuffer) -> Float {
+    private nonisolated static func normalizedLevel(of buffer: AVAudioPCMBuffer) -> Float {
         guard let channel = buffer.floatChannelData?[0], buffer.frameLength > 0 else {
             return 0
         }

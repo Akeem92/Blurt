@@ -5,6 +5,8 @@ import SwiftUI
 /// settings window.
 @main
 struct BlurtApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+
     /// `@State` on a reference type is how SwiftUI is told to create this once and
     /// keep it alive for the whole app session, rather than on every body re-run.
     @State private var controller = DictationController()
