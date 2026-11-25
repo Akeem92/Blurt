@@ -33,7 +33,7 @@ text field.
 |-----:|--------------|--------|
 | 1 | Menu-bar skeleton, settings window, state machine | ✅ done |
 | 2a | Microphone permission, capture, live input level | ✅ done |
-| 2b | The floating recording pill | — |
+| 2b | The floating recording pill | ✅ done |
 | 3 | Configurable global shortcut, hold-to-talk and toggle | — |
 | 4 | Transcription via Apple SpeechAnalyzer | — |
 | 5 | Insertion into the frontmost app — **first usable build** | — |
@@ -49,10 +49,14 @@ Dictation lives or dies on small courtesies. These are tracked as features, not
 polish:
 
 - **Get out of the way of whatever is playing.** Start a dictation over music or
-  a video and the other audio should quieten or pause, then come back by itself.
-  Apple's voice-processing unit ducks other apps on the same output for free, and
-  brings echo cancellation and noise suppression with it; a true pause needs
-  CoreAudio process inspection and is being weighed against it.
+  a video and the other audio should pause, then resume by itself. Lands with
+  step 5: a real pause means simulating the play/pause media key, which needs the
+  same Accessibility permission that inserting text does, so it costs nothing
+  extra once that permission is in hand. It has to detect what is playing first,
+  or it would start music that was never running.
+  Apple's voice-processing unit ducks other audio for free, but it is built for
+  speakerphone conditions and audibly degrades a headset microphone, so it is not
+  the answer here.
 - **Never steal focus.** The recording pill has to be a non-activating panel.
   The moment the overlay takes focus, the app that was supposed to receive the
   text is no longer frontmost and the dictation has nowhere to land.

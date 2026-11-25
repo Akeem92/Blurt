@@ -24,10 +24,74 @@ enum SelfTest {
         case "--selftest-capture": await captureTest()
         case "--selftest-record": await recordTest()
         case "--selftest-channels": await channelsTest()
+        case "--selftest-pill": await pillTest()
         default:
             FileHandle.standardError.write(Data("unknown self-test: \(name)\n".utf8))
             exit(64)
         }
+    }
+
+    /// Checks that showing the recording pill does not take focus from whatever
+    /// app the user is actually working in.
+    ///
+    /// This is the one property the pill must never lose. Blurt types into the
+    /// frontmost app; a pill that becomes key makes *Blurt* frontmost, and the
+    /// dictation ends up with nowhere to land. Run this from a terminal, which
+    /// stays frontmost throughout since Blurt is an accessory app.
+    @MainActor
+    private static func pillTest() async -> Never {
+        guard MicrophoneAccess.status == .granted else {
+            print("FAIL  microphone not granted")
+            exit(3)
+        }
+
+        func frontmost() -> String {
+            NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "none"
+        }
+
+        let before = frontmost()
+        print("      frontmost before: \(before)")
+
+        let controller = DictationController()
+        let presenter = RecordingPillPresenter(controller: controller)
+        _ = presenter  // held for the duration of the test
+
+        await controller.startRecording()
+        try? await Task.sleep(for: .milliseconds(600))
+
+        let panels = NSApp.windows.filter { $0 is NSPanel && $0.isVisible }
+        let during = frontmost()
+        print("      frontmost while recording: \(during)")
+        print("      visible panels: \(panels.count)")
+
+        guard let pill = panels.first else {
+            print("FAIL  pill never appeared")
+            exit(1)
+        }
+        print("      pill frame: \(pill.frame)")
+        print("      canBecomeKey: \(pill.canBecomeKey)   isKeyWindow: \(pill.isKeyWindow)")
+
+        var failures: [String] = []
+        if during != before { failures.append("focus moved from \(before) to \(during)") }
+        if pill.canBecomeKey { failures.append("pill can become key window") }
+        if pill.isKeyWindow { failures.append("pill took the keyboard") }
+
+        controller.stopRecording()
+        for _ in 0..<50 where controller.lastRecordingURL == nil {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+
+        let stillVisible = NSApp.windows.filter { $0 is NSPanel && $0.isVisible }.count
+        print("      visible panels after stop: \(stillVisible)")
+        if stillVisible > 0 { failures.append("pill stayed on screen after recording ended") }
+
+        guard failures.isEmpty else {
+            for failure in failures { print("FAIL  \(failure)") }
+            exit(1)
+        }
+        print("PASS  pill shown and hidden without taking focus")
+        exit(0)
     }
 
     /// Measures each channel the input node delivers, separately.
