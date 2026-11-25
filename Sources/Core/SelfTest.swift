@@ -456,6 +456,9 @@ enum SelfTest {
         let suite = "com.blurt.app.selftest"
         UserDefaults.standard.removePersistentDomain(forName: suite)
         let preferences = Preferences(defaults: UserDefaults(suiteName: suite)!)
+        // This test follows each dictation by the file it produces, and Blurt
+        // writes none by default.
+        preferences.keepsRecordings = true
         let controller = DictationController(preferences: preferences)
         let coordinator = ShortcutCoordinator(controller: controller, preferences: preferences)
 
@@ -551,6 +554,7 @@ enum SelfTest {
             for failure in failures { print("FAIL  \(failure)") }
             exit(1)
         }
+        AudioFileWriter.deleteAllRecordings()
         print("PASS  both activation modes behave")
         exit(0)
     }
@@ -770,9 +774,17 @@ enum SelfTest {
             exit(3)
         }
 
-        let controller = DictationController(preferences: Preferences())
-        controller.capture.isVoiceProcessingEnabled =
-            CommandLine.arguments.contains("--voice-processing")
+        // Blurt writes no audio to disk by default. This test is about the
+        // writer, so it turns that on — in its own defaults suite, so the real
+        // setting is left alone.
+        let suite = "com.blurt.app.selftest.record"
+        UserDefaults.standard.removePersistentDomain(forName: suite)
+        let preferences = Preferences(defaults: UserDefaults(suiteName: suite)!)
+        preferences.keepsRecordings = true
+        preferences.isVoiceProcessingEnabled = CommandLine.arguments.contains("--voice-processing")
+
+        let controller = DictationController(preferences: preferences)
+        defer { UserDefaults.standard.removePersistentDomain(forName: suite) }
 
         await controller.startRecording()
         guard case .recording = controller.state else {
@@ -819,6 +831,8 @@ enum SelfTest {
             exit(1)
         }
 
+        // Blurt's promise is that it keeps nothing, and a test is no excuse.
+        AudioFileWriter.deleteAllRecordings()
         print("PASS  recorded a playable file end to end")
         exit(0)
     }

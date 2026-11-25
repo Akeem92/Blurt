@@ -30,6 +30,27 @@ actor AudioFileWriter {
         try file.write(from: captured.buffer)
     }
 
+    /// `~/Library/Application Support/Blurt/Recordings`, which exists only when
+    /// recording to disk has been deliberately switched on.
+    static var recordingsDirectory: URL {
+        FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "Blurt/Recordings", directoryHint: .isDirectory)
+    }
+
+    static func storedRecordingCount() -> Int {
+        (try? FileManager.default.contentsOfDirectory(
+            at: recordingsDirectory,
+            includingPropertiesForKeys: nil
+        ).count) ?? 0
+    }
+
+    /// Removes the directory outright rather than its contents one by one, so
+    /// nothing is left behind to suggest Blurt keeps an archive.
+    static func deleteAllRecordings() {
+        try? FileManager.default.removeItem(at: recordingsDirectory)
+    }
+
     /// Where recordings live: `~/Library/Application Support/Blurt/Recordings`.
     ///
     /// Milliseconds are in the name for a reason. Timestamped to the second, two
@@ -41,9 +62,6 @@ actor AudioFileWriter {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss.SSS"
 
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-        return support
-            .appending(path: "Blurt/Recordings", directoryHint: .isDirectory)
-            .appending(path: "\(formatter.string(from: now)).caf")
+        return recordingsDirectory.appending(path: "\(formatter.string(from: now)).caf")
     }
 }

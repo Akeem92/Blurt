@@ -144,7 +144,12 @@ final class DictationController {
                 return
             }
 
-            let writer = try AudioFileWriter(url: AudioFileWriter.newRecordingURL(), format: format)
+            // Nothing is written unless it was explicitly asked for. The audio
+            // goes from the microphone to the transcriber in memory and is gone
+            // the moment the dictation ends.
+            let writer: AudioFileWriter? = preferences.keepsRecordings
+                ? try AudioFileWriter(url: AudioFileWriter.newRecordingURL(), format: format)
+                : nil
 
             // Transcription starts with the recording, not after it. By the time
             // the key is released the model has already heard almost everything,
@@ -181,13 +186,15 @@ final class DictationController {
             drainTask = Task.detached {
                 for await captured in buffers {
                     await session.feed(captured)
-                    do {
-                        try await writer.write(captured)
-                    } catch {
-                        logger.error("Dropped a buffer: \(error.localizedDescription)")
+                    if let writer {
+                        do {
+                            try await writer.write(captured)
+                        } catch {
+                            logger.error("Dropped a buffer: \(error.localizedDescription)")
+                        }
                     }
                 }
-                await self.finishRecording(savedTo: writer.url)
+                await self.finishRecording(savedTo: writer?.url)
             }
         } catch {
             log.error("Could not start dictation: \(error.localizedDescription)")
@@ -217,7 +224,7 @@ final class DictationController {
 
     /// Called once the audio stream has run dry, so no words are lost to a buffer
     /// that was still in transit when the key came up.
-    private func finishRecording(savedTo url: URL) async {
+    private func finishRecording(savedTo url: URL?) async {
         drainTask = nil
         lastRecordingURL = url
 

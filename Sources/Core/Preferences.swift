@@ -20,6 +20,7 @@ final class Preferences {
         static let removeFillers = "removeFillers"
         static let localTypography = "localTypography"
         static let claudeCleanup = "claudeCleanup"
+        static let keepRecordings = "keepRecordings"
     }
 
     /// Strip "euh", "hum" and friends. Always on by default: they are sounds,
@@ -38,6 +39,16 @@ final class Preferences {
     /// is supplied, because it is the only thing in Blurt that leaves the Mac.
     var usesClaudeCleanup: Bool {
         didSet { defaults.set(usesClaudeCleanup, forKey: Key.claudeCleanup) }
+    }
+
+    /// Write each dictation's audio to disk.
+    ///
+    /// Off, and meant to stay off. Blurt's job is to turn speech into text, not
+    /// to build an archive of someone's voice — and an archive that grows
+    /// silently forever is worse than one nobody asked for. This exists only so
+    /// a capture problem can be listened to if one ever has to be diagnosed.
+    var keepsRecordings: Bool {
+        didSet { defaults.set(keepsRecordings, forKey: Key.keepRecordings) }
     }
 
     /// Turn the output volume down for the length of a dictation, then put it
@@ -126,5 +137,6 @@ final class Preferences {
             : defaults.bool(forKey: Key.localTypography)
 
         usesClaudeCleanup = defaults.bool(forKey: Key.claudeCleanup)
+        keepsRecordings = defaults.bool(forKey: Key.keepRecordings)
     }
 }

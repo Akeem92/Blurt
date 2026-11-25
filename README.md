@@ -10,9 +10,8 @@ app is fully usable without ever touching the network.
 It is a free, open alternative to Wispr Flow and a cousin of
 [Handy](https://handy.computer/).
 
-> **Status: usable.** Hold the shortcut, speak, let go — the text lands where
-> your cursor is. Cleanup and the fuller settings are still to come.
-> See [Roadmap](#roadmap).
+> **Status: it works.** Hold the shortcut, speak, let go — the text lands where
+> your cursor is, and nothing is kept afterwards. See [Roadmap](#roadmap).
 
 ## Why
 
@@ -39,10 +38,12 @@ text field.
 | 4 | On-device transcription, live in the pill | ✅ done |
 | 5 | Insertion into the frontmost app, pausing other audio | ✅ done |
 | 6 | Cleanup: fillers, typography, optional Claude polish | ✅ done |
-| 7 | Full settings: colours, languages, history, custom dictionary | — |
+| 7 | Launch at login, and keeping nothing on disk | ✅ done |
 
 Later: Parakeet and Whisper engines, per-app writing styles, a personal
-dictionary for names and jargon, voice commands over selected text.
+dictionary for names and jargon (DictationTranscriber supports custom vocabulary
+natively), choosing a microphone, recolouring the pill, voice commands over
+selected text.
 
 ## Details that matter
 
@@ -64,6 +65,10 @@ polish:
   untouched rather than overwritten: it may hold the only copy of something.
 - **Never lose words.** A dictation that cannot be inserted is still in the menu
   under Copy Last Dictation.
+- **Keep nothing.** Audio goes from the microphone to the transcriber in memory
+  and is gone when the dictation ends — nothing is written to disk. The text is
+  held only until the next dictation and forgotten on quit. Saving recordings is
+  a diagnostic switch, off by default, with a button to delete whatever it made.
 
 ## Design notes
 
