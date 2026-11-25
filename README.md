@@ -22,10 +22,8 @@ text field.
 
 ## Requirements
 
-- macOS 26 or later — Apple's `SpeechAnalyzer` framework is macOS 26+.
-  Support for older systems arrives with the Parakeet and Whisper engines, which
-  have no such floor.
-- Apple Silicon.
+- macOS 26 or later, on Apple Silicon. Apple's `SpeechAnalyzer` framework sets
+  that floor, and supporting anything older is not a goal.
 
 ## Roadmap
 
@@ -40,10 +38,15 @@ text field.
 | 6 | Cleanup: fillers, typography, optional Claude polish | ✅ done |
 | 7 | Launch at login, and keeping nothing on disk | ✅ done |
 
-Later: Parakeet and Whisper engines, per-app writing styles, a personal
-dictionary for names and jargon (DictationTranscriber supports custom vocabulary
-natively), choosing a microphone, recolouring the pill, voice commands over
-selected text.
+Later, if ever: a personal dictionary for names and jargon
+(`DictationTranscriber` supports custom vocabulary natively), choosing a
+microphone rather than following the system, recolouring the pill, per-app
+writing styles, and voice commands over a selection.
+
+Other transcription engines — Parakeet, Whisper — sit behind the
+`TranscriptionEngine` protocol and would drop in cleanly, but there is no reason
+to add one. They were on the list to reach older versions of macOS, which is not
+something this app is trying to do.
 
 ## Details that matter
 

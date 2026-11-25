@@ -142,9 +142,9 @@ actor AppleDictationSession: TranscriptionSession {
         // and will not say so. Feeding it unconverted buffers compiles cleanly,
         // runs happily, and transcribes absolutely nothing — no error, no
         // warning, just silence where the words should be. macOS 27 ships an
-        // `AnalyzerInputConverter` that handles this, but relying on it would
-        // raise Blurt's floor from macOS 26 to 27, so the conversion is done by
-        // hand and the same code runs for everyone.
+        // `AnalyzerInputConverter` that would do this, but it arrived after the
+        // hand-written one here, which is covered by --selftest-transcribe.
+        // Swapping working, tested code for newer code solves nothing.
         guard let analyzerFormat = await SpeechAnalyzer.bestAvailableAudioFormat(
             compatibleWith: [transcriber]
         ) else {
