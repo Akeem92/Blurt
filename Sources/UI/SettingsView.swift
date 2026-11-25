@@ -46,6 +46,9 @@ struct SettingsView: View {
             }
         }
         .frame(width: 500, height: 360)
+        // Gives this window ordinary behaviour despite Blurt living in the menu
+        // bar: a Dock icon and a ⌘-Tab entry while it is open, gone when it closes.
+        .background(RegularActivationWhileOpen())
     }
 }
 
