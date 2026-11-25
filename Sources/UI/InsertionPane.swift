@@ -31,8 +31,8 @@ struct InsertionPane: View {
             }
 
             Section("While you dictate") {
-                Toggle("Pause whatever is playing", isOn: $preferences.pausesOtherAudio)
-                Text("Music or a video stops for the length of the dictation and starts again afterwards. Blurt checks that something is actually playing first, so a dictation in silence never starts music that was not running — and it only ever resumes what it paused itself.")
+                Toggle("Turn other audio down", isOn: $preferences.ducksOtherAudio)
+                Text("The output volume drops while you speak and goes back afterwards, the way macOS does for Siri. Nothing is paused and nothing is started — Blurt cannot tell a paused video from a playing one without asking to record your system audio, which is not a reasonable thing for a dictation app to want. If you change the volume yourself mid-dictation, your choice is kept.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

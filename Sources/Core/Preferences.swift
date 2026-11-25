@@ -16,7 +16,7 @@ final class Preferences {
         static let transcriptionLanguage = "transcriptionLanguage"
         static let punctuation = "punctuationEnabled"
         static let emoji = "emojiEnabled"
-        static let pauseOtherAudio = "pauseOtherAudio"
+        static let duckOtherAudio = "duckOtherAudio"
         static let removeFillers = "removeFillers"
         static let localTypography = "localTypography"
         static let claudeCleanup = "claudeCleanup"
@@ -40,10 +40,11 @@ final class Preferences {
         didSet { defaults.set(usesClaudeCleanup, forKey: Key.claudeCleanup) }
     }
 
-    /// Pause whatever is playing for the length of a dictation, then start it
-    /// again. Only ever resumes what Blurt itself paused.
-    var pausesOtherAudio: Bool {
-        didSet { defaults.set(pausesOtherAudio, forKey: Key.pauseOtherAudio) }
+    /// Turn the output volume down for the length of a dictation, then put it
+    /// back. A new key rather than the old `pauseOtherAudio`: the behaviour
+    /// changed, so an opinion recorded about the old one does not transfer.
+    var ducksOtherAudio: Bool {
+        didSet { defaults.set(ducksOtherAudio, forKey: Key.duckOtherAudio) }
     }
 
     /// The language dictation is transcribed in.
@@ -112,9 +113,9 @@ final class Preferences {
 
         isEmojiEnabled = defaults.bool(forKey: Key.emoji)
 
-        pausesOtherAudio = defaults.object(forKey: Key.pauseOtherAudio) == nil
+        ducksOtherAudio = defaults.object(forKey: Key.duckOtherAudio) == nil
             ? true
-            : defaults.bool(forKey: Key.pauseOtherAudio)
+            : defaults.bool(forKey: Key.duckOtherAudio)
 
         removesFillers = defaults.object(forKey: Key.removeFillers) == nil
             ? true

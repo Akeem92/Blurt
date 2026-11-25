@@ -47,7 +47,7 @@ final class DictationController {
     private let inserter: any TextInserter = ClipboardInserter()
 
     @ObservationIgnored
-    private let media = MediaPlayback()
+    private let ducking = AudioDucking()
 
     @ObservationIgnored
     private let preferences: Preferences
@@ -91,11 +91,11 @@ final class DictationController {
     /// Every route out of a dictation goes through here.
     ///
     /// Centralised so that no path — not an early return, not an error, not a
-    /// failed insertion — can forget to let the music start again. Scattering
-    /// `media.resumeIfPaused()` across six exits is how an app ends up leaving
-    /// someone's music paused with no idea why.
+    /// failed insertion — can forget to put the volume back. Scattering
+    /// `ducking.restore()` across six exits is how an app ends up leaving
+    /// someone's volume at ten percent with no idea why.
     private func settle(_ newState: RecordingState) {
-        media.resumeIfPaused()
+        ducking.restore()
         stoppedAt = nil
         state = newState
     }
@@ -129,10 +129,10 @@ final class DictationController {
         capture.isVoiceProcessingEnabled = preferences.isVoiceProcessingEnabled
         capture.isAutomaticGainControlEnabled = preferences.isAutomaticGainControlEnabled
 
-        // Before the microphone opens, so the last bars of a song are not in the
-        // recording — and so you are not talking over your own music.
-        if preferences.pausesOtherAudio {
-            media.pauseIfPlaying()
+        // Before the microphone opens, so you are not talking over your own
+        // music and the microphone hears less of it.
+        if preferences.ducksOtherAudio {
+            ducking.duck()
         }
 
         do {

@@ -90,7 +90,7 @@ enum SelfTest {
         // Running twice must change nothing. A typography rule that adds a space
         // without first removing the one already there drifts a little further
         // every pass.
-        var cleaner = RuleBasedCleaner()
+        let cleaner = RuleBasedCleaner()
         let once = (try? await cleaner.clean("c'est noté : vraiment ?", locale: Locale(identifier: "fr-FR"))) ?? ""
         let twice = (try? await cleaner.clean(once, locale: Locale(identifier: "fr-FR"))) ?? ""
         if once != twice {
@@ -116,62 +116,57 @@ enum SelfTest {
             .replacingOccurrences(of: "\u{00A0}", with: "[nbsp]")
     }
 
-    /// Checks that Blurt can tell whether anything is actually playing.
+    /// Checks that the volume goes down and comes back.
     ///
-    /// Only the detection half. Pressing play/pause is not tested here on
-    /// purpose: a test that mashes the media key would stop whatever the person
-    /// running it happens to be listening to.
+    /// This replaced a test for "is anything playing", which could not be made
+    /// to work: CoreAudio reports whether a process holds an output stream open,
+    /// not whether sound is coming out, so a messaging app idling and a paused
+    /// video both claimed to be playing. Acting on that started the video.
     ///
-    /// Detection is the half that matters anyway. Get it wrong in one direction
-    /// and a dictation started in silence begins playing music nobody asked for;
-    /// get it wrong in the other and the pause never happens.
+    /// Lowering the volume needs no detection, which is exactly why it is
+    /// testable: read the volume, duck, read it again, restore, read once more.
     @MainActor
     private static func mediaTest() async -> Never {
-        var failures: [String] = []
-
-        let quiet = MediaPlayback.isAnythingPlaying()
-        print("      with nothing started by this test: \(quiet ? "something is playing" : "silent")")
-        if quiet {
-            print("      note: something on this Mac is already playing, so the silent case cannot be checked")
-        }
-
-        // Something deliberately quiet, since whoever is running this may be
-        // wearing headphones.
-        let player = Process()
-        player.executableURL = URL(fileURLWithPath: "/usr/bin/afplay")
-        player.arguments = ["-v", "0.02", "/System/Library/Sounds/Submarine.aiff"]
-        do { try player.run() } catch {
-            print("FAIL  could not start a test sound: \(error)")
+        guard let before = AudioDucking.currentVolume() else {
+            print("FAIL  no controllable output device on this Mac")
             exit(2)
         }
+        print(String(format: "      volume before: %.2f", before))
 
-        // CoreAudio needs a moment to notice a process has started output.
-        var detected = false
-        for _ in 0..<20 {
-            try? await Task.sleep(for: .milliseconds(100))
-            if MediaPlayback.isAnythingPlaying() { detected = true; break }
+        let ducking = AudioDucking()
+        var failures: [String] = []
+
+        ducking.duck()
+        let during = AudioDucking.currentVolume() ?? -1
+        print(String(format: "      while ducked:  %.2f", during))
+
+        if before > ducking.duckedLevel {
+            if during >= before { failures.append("the volume did not go down") }
+            if !ducking.isDucked { failures.append("ducking did not record that it acted") }
+        } else {
+            print("      (already quieter than the ducked level, so nothing to do)")
         }
-        print("      while a sound is playing: \(detected ? "detected" : "NOT detected")")
-        if !detected { failures.append("playback was not detected while audio was running") }
 
-        player.terminate()
-        player.waitUntilExit()
+        ducking.restore()
+        let after = AudioDucking.currentVolume() ?? -1
+        print(String(format: "      restored to:   %.2f", after))
 
-        var wentQuiet = false
-        for _ in 0..<30 {
-            try? await Task.sleep(for: .milliseconds(100))
-            if !MediaPlayback.isAnythingPlaying() { wentQuiet = true; break }
+        if abs(after - before) > 0.02 {
+            failures.append(String(format: "volume came back to %.2f instead of %.2f", after, before))
         }
-        print("      after it stopped: \(wentQuiet ? "silent again" : "still reported as playing")")
-        if !wentQuiet, !quiet {
-            failures.append("playback was still reported after the sound stopped")
+
+        // Restoring twice must not shove the volume somewhere unexpected.
+        ducking.restore()
+        let afterTwice = AudioDucking.currentVolume() ?? -1
+        if abs(afterTwice - before) > 0.02 {
+            failures.append("a second restore moved the volume again")
         }
 
         guard failures.isEmpty else {
             for failure in failures { print("FAIL  \(failure)") }
             exit(1)
         }
-        print("PASS  playback detection follows what is actually playing")
+        print("PASS  the volume ducks and comes back")
         exit(0)
     }
 
