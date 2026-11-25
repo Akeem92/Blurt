@@ -22,6 +22,13 @@ final class AudioCaptureService {
     /// format the input node delivers.
     var isVoiceProcessingEnabled = false
 
+    /// Apple's automatic gain control, which rides the input level up and down.
+    /// On by default whenever voice processing is on. It is tuned for telephony,
+    /// where a steady level matters more than fidelity — it will lift room noise
+    /// during pauses and can clamp down on a voice it mistakes for echo.
+    /// Ignored when voice processing is off.
+    var isAutomaticGainControlEnabled = true
+
     private let engine = AVAudioEngine()
     private var continuation: AsyncStream<CapturedBuffer>.Continuation?
 
@@ -51,6 +58,9 @@ final class AudioCaptureService {
         // format has to be read afterwards.
         if input.isVoiceProcessingEnabled != isVoiceProcessingEnabled {
             try input.setVoiceProcessingEnabled(isVoiceProcessingEnabled)
+        }
+        if input.isVoiceProcessingEnabled {
+            input.isVoiceProcessingAGCEnabled = isAutomaticGainControlEnabled
         }
 
         let format = input.inputFormat(forBus: 0)

@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import AVFoundation
 
 /// Step 2's proving ground: grant the permission, watch the level, record, then
 /// go and listen to what was actually captured.
@@ -32,6 +33,11 @@ struct MicrophonePane: View {
             }
 
             Section("Input") {
+                LabeledContent("Device") {
+                    Text(AVCaptureDevice.default(for: .audio)?.localizedName ?? "None")
+                        .foregroundStyle(.secondary)
+                }
+
                 // `TimelineView(.animation)` is driven by the display refresh, so
                 // the level is *sampled* here rather than pushed from the audio
                 // thread. That is the whole point of keeping it out of the state
@@ -42,7 +48,13 @@ struct MicrophonePane: View {
 
                 Toggle("Voice processing", isOn: voiceProcessingBinding)
                     .disabled(controller.capture.isRunning)
-                Text("Echo cancellation and noise reduction, and macOS turns other apps' audio down while you speak. Record once with it and once without, then compare the two files.")
+                Text("Built for speakerphone conditions, where your own voice comes back into the microphone through the air. On a headset there is no such echo, so it brings only its side effects: telephony-grade noise reduction and gain riding, which thin out an already quiet headset microphone. Worth trying on the built-in microphone, best left off with a headset.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Toggle("Automatic gain control", isOn: automaticGainControlBinding)
+                    .disabled(controller.capture.isRunning || !controller.capture.isVoiceProcessingEnabled)
+                Text("Rides the input level up and down to keep it steady. Lifts room noise during pauses.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -81,6 +93,13 @@ struct MicrophonePane: View {
         Binding(
             get: { controller.capture.isVoiceProcessingEnabled },
             set: { controller.capture.isVoiceProcessingEnabled = $0 }
+        )
+    }
+
+    private var automaticGainControlBinding: Binding<Bool> {
+        Binding(
+            get: { controller.capture.isAutomaticGainControlEnabled },
+            set: { controller.capture.isAutomaticGainControlEnabled = $0 }
         )
     }
 
