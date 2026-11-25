@@ -59,7 +59,7 @@ extension DictationError: LocalizedError {
         case .microphonePermissionDenied:
             "Allow Blurt under Privacy & Security → Microphone in System Settings."
         case .accessibilityPermissionDenied:
-            "Allow Blurt under Privacy & Security → Accessibility in System Settings."
+            "Allow Blurt under Privacy & Security → Accessibility in System Settings. Your words are kept — use Copy Last Dictation in the menu."
         case .noSpeechDetected:
             "Try again, a little closer to the microphone."
         case .languageUnsupported:

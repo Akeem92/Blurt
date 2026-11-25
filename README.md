@@ -10,8 +10,9 @@ app is fully usable without ever touching the network.
 It is a free, open alternative to Wispr Flow and a cousin of
 [Handy](https://handy.computer/).
 
-> **Status: early.** The app records audio and can play it back to you, but it
-> does not transcribe anything yet. See [Roadmap](#roadmap).
+> **Status: usable.** Hold the shortcut, speak, let go — the text lands where
+> your cursor is. Cleanup and the fuller settings are still to come.
+> See [Roadmap](#roadmap).
 
 ## Why
 
@@ -35,8 +36,8 @@ text field.
 | 2a | Microphone permission, capture, live input level | ✅ done |
 | 2b | The floating recording pill | ✅ done |
 | 3 | Configurable global shortcut, hold-to-talk and toggle | ✅ done |
-| 4 | Transcription via Apple SpeechAnalyzer | — |
-| 5 | Insertion into the frontmost app — **first usable build** | — |
+| 4 | On-device transcription, live in the pill | ✅ done |
+| 5 | Insertion into the frontmost app, pausing other audio | ✅ done |
 | 6 | Cleanup: punctuation and fillers, optional Claude polish | — |
 | 7 | Full settings: colours, languages, history, custom dictionary | — |
 
@@ -48,22 +49,21 @@ dictionary for names and jargon, voice commands over selected text.
 Dictation lives or dies on small courtesies. These are tracked as features, not
 polish:
 
-- **Get out of the way of whatever is playing.** Start a dictation over music or
-  a video and the other audio should pause, then resume by itself. Lands with
-  step 5: a real pause means simulating the play/pause media key, which needs the
-  same Accessibility permission that inserting text does, so it costs nothing
-  extra once that permission is in hand. It has to detect what is playing first,
-  or it would start music that was never running.
-  Apple's voice-processing unit ducks other audio for free, but it is built for
-  speakerphone conditions and audibly degrades a headset microphone, so it is not
-  the answer here.
-- **Never steal focus.** The recording pill has to be a non-activating panel.
-  The moment the overlay takes focus, the app that was supposed to receive the
-  text is no longer frontmost and the dictation has nowhere to land.
-- **Leave the clipboard as you found it.** Insertion goes through the clipboard,
-  so whatever was in it is saved and put back afterwards.
-- **Never lose words.** A failure anywhere after transcription still leaves the
-  text somewhere reachable — the clipboard, or the history.
+- **Get out of the way of whatever is playing.** Music or a video pauses for the
+  length of a dictation and starts again afterwards. Blurt asks CoreAudio which
+  processes are actually producing output before pressing anything, so a
+  dictation in silence never *starts* music that was not running — and it only
+  resumes what it paused itself. Every route out of a dictation, errors included,
+  goes through one place, so none of them can leave your music paused.
+- **Never steal focus.** The recording pill is a non-activating panel. The moment
+  an overlay takes focus, the app that was supposed to receive the text is no
+  longer frontmost and the dictation has nowhere to land.
+- **Borrow the clipboard, never confiscate it.** Insertion goes through the
+  clipboard, so its previous contents are saved and put back — images and files
+  included, not just text. When pasting is not possible, the clipboard is left
+  untouched rather than overwritten: it may hold the only copy of something.
+- **Never lose words.** A dictation that cannot be inserted is still in the menu
+  under Copy Last Dictation.
 
 ## Design notes
 
@@ -87,9 +87,40 @@ xcodegen generate
 open Blurt.xcodeproj
 ```
 
-`project.yml` is the source of truth for the project. `Blurt.xcodeproj/` and
-`Support/Info.plist` are generated from it and are not tracked in git — re-run
-`xcodegen generate` after adding files or changing build settings.
+`project.yml` is the source of truth for the project. `Blurt.xcodeproj/`,
+`Support/Info.plist` and `Support/Blurt.entitlements` are generated from it and
+are not tracked in git — re-run `xcodegen generate` after adding files or
+changing build settings.
+
+**Signing matters more than usual here.** macOS binds the Accessibility
+permission to an app's code signature, so an ad-hoc signature — which changes on
+every build — means re-granting it after every build. Create
+`Signing.local.xcconfig` (git-ignored) with your own certificate:
+
+```
+CODE_SIGN_IDENTITY = <SHA-1 from `security find-identity -v -p codesigning`>
+DEVELOPMENT_TEAM = <your ten-character team id>
+```
+
+### Self-tests
+
+Behaviour that only appears once real audio is flowing does not show up at
+compile time, so the debug build carries headless checks:
+
+```sh
+Blurt.app/Contents/MacOS/Blurt --selftest-capture      # the audio thread
+Blurt.app/Contents/MacOS/Blurt --selftest-record       # capture to a playable file
+Blurt.app/Contents/MacOS/Blurt --selftest-transcribe   # speaks a known sentence, checks the words
+Blurt.app/Contents/MacOS/Blurt --selftest-shortcut     # both activation modes
+Blurt.app/Contents/MacOS/Blurt --selftest-pill         # the pill never takes focus
+Blurt.app/Contents/MacOS/Blurt --selftest-clipboard    # the clipboard round trip
+Blurt.app/Contents/MacOS/Blurt --selftest-media        # playback detection
+```
+
+Between them they have caught a crash on the first audio buffer, empty
+transcripts, a microphone left open for good, a shortcut that died after a
+failure, a dictation wedged forever on "Transcribing…", and a clipboard that was
+overwritten and never restored.
 
 ## Licence
 

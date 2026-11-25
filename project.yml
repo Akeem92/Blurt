@@ -36,6 +36,12 @@ targets:
     dependencies:
       - package: KeyboardShortcuts
 
+    # Signing lives in an xcconfig so a personal certificate and team id can be
+    # kept out of a public repository. See Signing.xcconfig.
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
+
     # XcodeGen writes Info.plist from these properties, so the plist is a build
     # artifact and this file stays the single source of truth.
     info:
@@ -66,9 +72,6 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.blurt.app
         PRODUCT_NAME: Blurt
-        # Ad-hoc signing for now. Replaced by a stable self-signed certificate
-        # at step 5, when the Accessibility permission starts mattering.
-        CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
         ENABLE_HARDENED_RUNTIME: YES
         COMBINE_HIDPI_IMAGES: YES

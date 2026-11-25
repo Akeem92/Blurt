@@ -256,7 +256,7 @@ actor AppleDictationSession: TranscriptionSession {
         // words.
         let deadline = ContinuousClock.now.advanced(by: Self.settleTimeout)
         while !resultsFinished, ContinuousClock.now < deadline {
-            try? await Task.sleep(for: .milliseconds(40))
+            try? await Task.sleep(for: .milliseconds(10))
         }
 
         if !resultsFinished {

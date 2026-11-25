@@ -22,6 +22,10 @@ struct SettingsView: View {
                 TranscriptionPane(controller: controller, preferences: preferences)
             }
 
+            Tab("Insertion", systemImage: "text.cursor") {
+                InsertionPane(controller: controller, preferences: preferences)
+            }
+
             Tab("Cleanup", systemImage: "sparkles") {
                 ComingSoonPane(
                     title: "Cleanup",

@@ -29,10 +29,138 @@ enum SelfTest {
         case "--selftest-pill": await pillTest()
         case "--selftest-shortcut": await shortcutTest()
         case "--selftest-transcribe": await transcribeTest()
+        case "--selftest-clipboard": await clipboardTest()
+        case "--selftest-media": await mediaTest()
         default:
             FileHandle.standardError.write(Data("unknown self-test: \(name)\n".utf8))
             exit(64)
         }
+    }
+
+    /// Checks that Blurt can tell whether anything is actually playing.
+    ///
+    /// Only the detection half. Pressing play/pause is not tested here on
+    /// purpose: a test that mashes the media key would stop whatever the person
+    /// running it happens to be listening to.
+    ///
+    /// Detection is the half that matters anyway. Get it wrong in one direction
+    /// and a dictation started in silence begins playing music nobody asked for;
+    /// get it wrong in the other and the pause never happens.
+    @MainActor
+    private static func mediaTest() async -> Never {
+        var failures: [String] = []
+
+        let quiet = MediaPlayback.isAnythingPlaying()
+        print("      with nothing started by this test: \(quiet ? "something is playing" : "silent")")
+        if quiet {
+            print("      note: something on this Mac is already playing, so the silent case cannot be checked")
+        }
+
+        // Something deliberately quiet, since whoever is running this may be
+        // wearing headphones.
+        let player = Process()
+        player.executableURL = URL(fileURLWithPath: "/usr/bin/afplay")
+        player.arguments = ["-v", "0.02", "/System/Library/Sounds/Submarine.aiff"]
+        do { try player.run() } catch {
+            print("FAIL  could not start a test sound: \(error)")
+            exit(2)
+        }
+
+        // CoreAudio needs a moment to notice a process has started output.
+        var detected = false
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(100))
+            if MediaPlayback.isAnythingPlaying() { detected = true; break }
+        }
+        print("      while a sound is playing: \(detected ? "detected" : "NOT detected")")
+        if !detected { failures.append("playback was not detected while audio was running") }
+
+        player.terminate()
+        player.waitUntilExit()
+
+        var wentQuiet = false
+        for _ in 0..<30 {
+            try? await Task.sleep(for: .milliseconds(100))
+            if !MediaPlayback.isAnythingPlaying() { wentQuiet = true; break }
+        }
+        print("      after it stopped: \(wentQuiet ? "silent again" : "still reported as playing")")
+        if !wentQuiet, !quiet {
+            failures.append("playback was still reported after the sound stopped")
+        }
+
+        guard failures.isEmpty else {
+            for failure in failures { print("FAIL  \(failure)") }
+            exit(1)
+        }
+        print("PASS  playback detection follows what is actually playing")
+        exit(0)
+    }
+
+    /// Checks that borrowing the clipboard gives it back.
+    ///
+    /// The clipboard belongs to the user. Replacing a copied image with a
+    /// sentence and never restoring it is the kind of damage an app does once
+    /// and is never forgiven for, so the round trip is tested rather than
+    /// assumed — including a non-text item, which is where a naive
+    /// save-the-string implementation quietly fails.
+    @MainActor
+    private static func clipboardTest() async -> Never {
+        let pasteboard = NSPasteboard.general
+        var failures: [String] = []
+
+        // A string and a PNG together, as a real clipboard often is.
+        let marker = "blurt-selftest-\(UUID().uuidString)"
+        let image = NSImage(size: NSSize(width: 4, height: 4))
+        image.lockFocus()
+        NSColor.systemPink.setFill()
+        NSBezierPath(rect: NSRect(x: 0, y: 0, width: 4, height: 4)).fill()
+        image.unlockFocus()
+
+        pasteboard.clearContents()
+        pasteboard.setString(marker, forType: .string)
+        pasteboard.writeObjects([image])
+
+        let typesBefore = Set(pasteboard.types ?? [])
+        print("      before: \(typesBefore.count) types, string = \(pasteboard.string(forType: .string) == nil ? "none" : "present")")
+
+        // Two paths, one requirement. With permission, the clipboard is borrowed
+        // and given back. Without it, the clipboard is never touched at all —
+        // leaving the dictation on it would destroy whatever the user had
+        // copied, which may be the only copy of it anywhere.
+        let inserter = ClipboardInserter()
+        let dictated = "a sentence that should not survive on the clipboard"
+        do {
+            try await inserter.insert(dictated)
+            print("      insertion succeeded (accessibility granted)")
+        } catch {
+            print("      insertion refused: \(error) — clipboard must still be restored")
+        }
+
+        // Restoration happens after the paste window, so give it a moment.
+        try? await Task.sleep(for: .milliseconds(400))
+
+        let typesAfter = Set(pasteboard.types ?? [])
+        let stringAfter = pasteboard.string(forType: .string)
+        print("      after:  \(typesAfter.count) types, string = \(stringAfter ?? "none")")
+
+        if stringAfter == dictated {
+            failures.append("the dictated text was left on the clipboard")
+        }
+        if stringAfter != marker {
+            failures.append("the original string was not restored (got \(stringAfter ?? "nothing"))")
+        }
+        if !typesBefore.subtracting(typesAfter).isEmpty {
+            failures.append("lost representations: \(typesBefore.subtracting(typesAfter).map(\.rawValue).joined(separator: ", "))")
+        }
+
+        pasteboard.clearContents()
+
+        guard failures.isEmpty else {
+            for failure in failures { print("FAIL  \(failure)") }
+            exit(1)
+        }
+        print("PASS  the clipboard was borrowed and given back intact")
+        exit(0)
     }
 
     /// Transcribes synthesised speech and checks the words come back.
@@ -106,7 +234,13 @@ enum SelfTest {
         }
 
         do {
+            // Where the time actually goes, phase by phase. The two that the
+            // user feels are the wait before the pill appears and the wait after
+            // letting go of the key.
+            let beginStart = ContinuousClock.now
             let session = try await engine.beginSession(locale: resolved)
+            let beginDuration = ContinuousClock.now - beginStart
+            print("      ⏱  beginSession: \(milliseconds(beginDuration)) ms")
 
             // Watch every update, so an empty final result can be told apart
             // from a model that never said anything at all.
@@ -121,10 +255,16 @@ enum SelfTest {
 
             // Fed in small chunks, as the microphone would, rather than in one
             // lump — streaming is the path that actually runs in the app.
+            let feedStart = ContinuousClock.now
             for chunk in spoken {
                 await session.feed(chunk)
             }
+            print("      ⏱  feeding \(spoken.count) chunks: \(milliseconds(ContinuousClock.now - feedStart)) ms")
+
+            let finishStart = ContinuousClock.now
             let heard = try await session.finish()
+            let finishDuration = ContinuousClock.now - finishStart
+            print("      ⏱  finish (key release → text): \(milliseconds(finishDuration)) ms")
             _ = await watching.result
             print("      heard:  \"\(heard)\"")
 
@@ -151,6 +291,12 @@ enum SelfTest {
             print("FAIL  \(error)")
             exit(1)
         }
+    }
+
+    /// Milliseconds, rounded, for readable timing output.
+    private static func milliseconds(_ duration: Duration) -> Int {
+        Int((Double(duration.components.seconds) * 1000)
+            + (Double(duration.components.attoseconds) / 1e15))
     }
 
     private static func value(after flag: String) -> String? {

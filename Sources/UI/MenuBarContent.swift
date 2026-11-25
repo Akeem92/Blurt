@@ -15,6 +15,18 @@ struct MenuBarContent: View {
     var body: some View {
         Text(controller.state.statusDescription)
 
+        if !controller.lastTranscript.isEmpty {
+            Divider()
+
+            // The deliberate way to get at a dictation that could not be
+            // inserted. Blurt never puts anything on the clipboard behind your
+            // back, so this is how the words are retrieved when pasting failed.
+            Button("Copy Last Dictation") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(controller.lastTranscript, forType: .string)
+            }
+        }
+
         Divider()
 
         Button("Settings…") {

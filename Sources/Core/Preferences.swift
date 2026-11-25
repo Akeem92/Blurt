@@ -16,6 +16,13 @@ final class Preferences {
         static let transcriptionLanguage = "transcriptionLanguage"
         static let punctuation = "punctuationEnabled"
         static let emoji = "emojiEnabled"
+        static let pauseOtherAudio = "pauseOtherAudio"
+    }
+
+    /// Pause whatever is playing for the length of a dictation, then start it
+    /// again. Only ever resumes what Blurt itself paused.
+    var pausesOtherAudio: Bool {
+        didSet { defaults.set(pausesOtherAudio, forKey: Key.pauseOtherAudio) }
     }
 
     /// The language dictation is transcribed in.
@@ -83,5 +90,9 @@ final class Preferences {
             : defaults.bool(forKey: Key.punctuation)
 
         isEmojiEnabled = defaults.bool(forKey: Key.emoji)
+
+        pausesOtherAudio = defaults.object(forKey: Key.pauseOtherAudio) == nil
+            ? true
+            : defaults.bool(forKey: Key.pauseOtherAudio)
     }
 }

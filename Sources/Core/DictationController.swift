@@ -44,6 +44,12 @@ final class DictationController {
     let capture = AudioCaptureService()
 
     @ObservationIgnored
+    private let inserter: any TextInserter = ClipboardInserter()
+
+    @ObservationIgnored
+    private let media = MediaPlayback()
+
+    @ObservationIgnored
     private let preferences: Preferences
 
     /// Live input level for the waveform. Read at screen rate, never stored in
@@ -64,11 +70,34 @@ final class DictationController {
     @ObservationIgnored
     private var stopRequested = false
 
+    /// When the key came up, so the wait the user actually feels can be measured
+    /// rather than guessed at.
+    @ObservationIgnored
+    private var stoppedAt: ContinuousClock.Instant?
+
     @ObservationIgnored
     private let log = Logger(subsystem: "com.blurt.app", category: "dictation")
 
     init(preferences: Preferences) {
         self.preferences = preferences
+    }
+
+    private static func ms(_ duration: Duration?) -> Int {
+        guard let duration else { return 0 }
+        return Int(Double(duration.components.seconds) * 1000
+            + Double(duration.components.attoseconds) / 1e15)
+    }
+
+    /// Every route out of a dictation goes through here.
+    ///
+    /// Centralised so that no path — not an early return, not an error, not a
+    /// failed insertion — can forget to let the music start again. Scattering
+    /// `media.resumeIfPaused()` across six exits is how an app ends up leaving
+    /// someone's music paused with no idea why.
+    private func settle(_ newState: RecordingState) {
+        media.resumeIfPaused()
+        stoppedAt = nil
+        state = newState
     }
 
     // MARK: - Transitions
@@ -100,12 +129,18 @@ final class DictationController {
         capture.isVoiceProcessingEnabled = preferences.isVoiceProcessingEnabled
         capture.isAutomaticGainControlEnabled = preferences.isAutomaticGainControlEnabled
 
+        // Before the microphone opens, so the last bars of a song are not in the
+        // recording — and so you are not talking over your own music.
+        if preferences.pausesOtherAudio {
+            media.pauseIfPlaying()
+        }
+
         do {
             let buffers = try capture.start()
             // The *delivery* format, not the capture format: buffers arrive mono
             // whatever the input node is configured as.
             guard let format = capture.deliveryFormat else {
-                state = .failed(.transcriptionFailed(reason: "No delivery format"))
+                settle(.failed(.transcriptionFailed(reason: "No delivery format")))
                 return
             }
 
@@ -157,7 +192,7 @@ final class DictationController {
         } catch {
             log.error("Could not start dictation: \(error.localizedDescription)")
             capture.stop()
-            state = .failed((error as? DictationError) ?? .transcriptionFailed(reason: "\(error)"))
+            settle(.failed((error as? DictationError) ?? .transcriptionFailed(reason: "\(error)")))
         }
     }
 
@@ -165,6 +200,7 @@ final class DictationController {
     func stopRecording() {
         switch state {
         case .recording:
+            stoppedAt = .now
             capture.stop()
 
         case .starting:
@@ -185,8 +221,13 @@ final class DictationController {
         drainTask = nil
         lastRecordingURL = url
 
+        // The two halves of the wait between letting go of the key and seeing
+        // the text: emptying whatever audio was still queued, then the engine
+        // settling. Logged separately because the fixes are different.
+        let drained = stoppedAt.map { ContinuousClock.now - $0 }
+
         guard let session else {
-            state = .idle
+            settle(.idle)
             return
         }
         self.session = nil
@@ -200,19 +241,39 @@ final class DictationController {
 
             let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else {
-                state = .failed(.noSpeechDetected)
+                settle(.failed(.noSpeechDetected))
                 return
             }
 
+            if let stoppedAt {
+                let total = ContinuousClock.now - stoppedAt
+                log.notice("""
+                    latency — drain \(Self.ms(drained)) ms, \
+                    engine \(Self.ms(total) - Self.ms(drained)) ms, \
+                    total \(Self.ms(total)) ms, \
+                    \(trimmed.count) characters
+                    """)
+            }
+            stoppedAt = nil
+
             lastTranscript = trimmed
             liveTranscript = trimmed
-            // Step 5 carries this into `.inserting`, step 6 cleans it on the way.
-            state = .idle
+
+            // Step 6 will clean the text on its way through here.
+            state = .inserting(text: trimmed)
+            do {
+                try await inserter.insert(trimmed)
+                settle(.idle)
+            } catch {
+                // The text is on the clipboard either way, so nothing is lost —
+                // the failure is about delivery, not about the words.
+                settle(.failed((error as? DictationError) ?? .insertionFailed(reason: "\(error)")))
+            }
         } catch {
             log.error("Transcription failed: \(error.localizedDescription)")
             transcriptTask?.cancel()
             transcriptTask = nil
-            state = .failed(.transcriptionFailed(reason: "\(error)"))
+            settle(.failed(.transcriptionFailed(reason: "\(error)")))
         }
     }
 

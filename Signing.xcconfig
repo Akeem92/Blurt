@@ -1,0 +1,25 @@
+// Code signing.
+//
+// macOS binds the Accessibility permission — the one that lets Blurt put text
+// into other apps — to an app's code signature rather than its name or path.
+// An ad-hoc signature changes on every build, so the system sees each build as
+// a different app and the permission must be granted again, every single time.
+//
+// Signing with a real certificate keeps that signature stable, so the
+// permission is granted once and stays granted.
+//
+// The defaults below are ad-hoc, which builds anywhere with no setup. To sign
+// properly, create `Signing.local.xcconfig` next to this file — it is ignored by
+// git, so your identity never lands in a public repository:
+//
+//     CODE_SIGN_IDENTITY = Apple Development
+//     DEVELOPMENT_TEAM = YOURTEAMID
+//
+// `security find-identity -v -p codesigning` lists what is in your keychain;
+// the ten characters in parentheses are the team id.
+
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+
+// Overrides the defaults above when present, and is quietly skipped when not.
+#include? "Signing.local.xcconfig"
