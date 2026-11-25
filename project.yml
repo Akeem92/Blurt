@@ -1,0 +1,51 @@
+name: Blurt
+
+options:
+  bundleIdPrefix: com.blurt
+  deploymentTarget:
+    macOS: "26.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    # Swift 6 language mode: strict concurrency checking is enforced by the
+    # compiler rather than merely suggested. Costs some annotations up front,
+    # rules out whole categories of audio/UI threading bugs later.
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEAD_CODE_STRIPPING: YES
+
+targets:
+  Blurt:
+    type: application
+    platform: macOS
+
+    sources:
+      - path: Sources
+
+    # XcodeGen writes Info.plist from these properties, so the plist is a build
+    # artifact and this file stays the single source of truth.
+    info:
+      path: Support/Info.plist
+      properties:
+        CFBundleName: Blurt
+        CFBundleDisplayName: Blurt
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        NSHumanReadableCopyright: "Blurt — MIT licensed"
+        # Menu bar app: no Dock icon, no main window, no app switcher entry.
+        LSUIElement: true
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.blurt.app
+        PRODUCT_NAME: Blurt
+        # Ad-hoc signing for now. Replaced by a stable self-signed certificate
+        # at step 5, when the Accessibility permission starts mattering.
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: YES
+        COMBINE_HIDPI_IMAGES: YES
