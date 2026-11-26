@@ -13,9 +13,12 @@ struct RecordingPill: View {
     @State private var history = [Float](repeating: 0, count: Layout.barCount)
 
     enum Layout {
-        static let barCount = 26
-        static let barWidth: CGFloat = 3
-        static let barGap: CGFloat = 2
+        static let barCount = 16
+        static let barWidth: CGFloat = 2
+        // Tighter than the bars are wide. Narrowing the gaps rather than
+        // dropping bars keeps the waveform's resolution — the same stretch of
+        // time is still shown, just more compactly.
+        static let barGap: CGFloat = 1
 
         /// The window is this size always; the capsule inside hugs its content
         /// and grows as text arrives. Resizing a borderless panel while it is on
@@ -33,26 +36,32 @@ struct RecordingPill: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             Waveform(samples: history)
-                .frame(width: Layout.waveformWidth, height: 20)
+                .frame(width: Layout.waveformWidth, height: 12)
 
             if !transcript.isEmpty {
                 Text(transcript)
-                    .font(.system(size: 13))
+                    .font(.system(size: 11))
+                    .foregroundStyle(.white)
                     .lineLimit(1)
                     // Truncate the beginning, not the end: the words that just
                     // left your mouth are the ones worth seeing.
                     .truncationMode(.head)
-                    .frame(maxWidth: 340, alignment: .trailing)
+                    .frame(maxWidth: 260, alignment: .trailing)
                     .transition(.opacity)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        // Solid black rather than a material: the pill sits over whatever the
+        // user is working in, and a translucent one borrows that background,
+        // changing appearance from one app to the next. Black is the same
+        // everywhere, which is what makes it read as part of the system rather
+        // than part of the window behind it.
         .background {
-            Capsule().fill(.ultraThinMaterial)
-            Capsule().strokeBorder(.primary.opacity(0.12), lineWidth: 1)
+            Capsule().fill(.black)
+            Capsule().strokeBorder(.white.opacity(0.14), lineWidth: 0.5)
         }
         .fixedSize()
         .animation(.easeOut(duration: 0.18), value: transcript.isEmpty)
@@ -80,7 +89,7 @@ private struct Waveform: View {
     var body: some View {
         Canvas { context, size in
             let step = RecordingPill.Layout.barWidth + RecordingPill.Layout.barGap
-            let minimum: CGFloat = 3
+            let minimum: CGFloat = 2
 
             for (index, sample) in samples.enumerated() {
                 // Newest sample on the right, so the waveform scrolls leftwards.
@@ -94,10 +103,12 @@ private struct Waveform: View {
                 )
 
                 // Older samples fade out, which reads as motion even in silence.
+                // White, not the accent colour: on black it is the only choice
+                // that stays legible whatever the user's accent colour is.
                 let age = Double(index) / Double(max(samples.count - 1, 1))
                 context.fill(
                     Path(roundedRect: rect, cornerRadius: RecordingPill.Layout.barWidth / 2),
-                    with: .color(.accentColor.opacity(0.35 + 0.65 * age))
+                    with: .color(.white.opacity(0.35 + 0.65 * age))
                 )
             }
         }

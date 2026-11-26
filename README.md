@@ -1,135 +1,218 @@
 # Blurt
 
-Hold a key, talk, let go. The text lands wherever your cursor is.
+**Hold a key, talk, let go. The text appears wherever your cursor is.**
 
-Blurt is a menu-bar dictation app for macOS. Transcription runs **on your Mac** —
-no account, no server, no upload, and it works on a plane. An optional cleanup
-pass can polish the result through Claude if you bring your own API key, but the
-app is fully usable without ever touching the network.
+Blurt is a dictation app for macOS that lives in your menu bar. It works in any
+app — your editor, your browser, Slack, the Terminal — and everything happens on
+your Mac. No account, no sign-up, no subscription, and it works on a plane.
 
-It is a free, open alternative to Wispr Flow and a cousin of
+A free and open alternative to Wispr Flow, and a cousin of
 [Handy](https://handy.computer/).
 
-> **Status: it works.** Hold the shortcut, speak, let go — the text lands where
-> your cursor is, and nothing is kept afterwards. See [Roadmap](#roadmap).
+---
 
-## Why
+## Why you might want it
 
-Good dictation is a solved problem that is mostly sold as a subscription. The
-models that make it work now run comfortably on an Apple Silicon Mac, so the
-monthly fee buys you a hotkey and a text field. Blurt is that hotkey and that
-text field.
+Typing is slow. Most people speak three or four times faster than they type, and
+a lot of what we write all day is not prose worth crafting — it is a message, a
+commit description, a reply, a note to yourself.
+
+Dictation already solves this. The problem is what it costs you:
+
+- **The good ones are subscriptions.** Ten to fifteen euros a month, forever, for
+  a keyboard shortcut and a text field.
+- **They send your voice to a server.** Everything you dictate — meeting notes,
+  passwords read aloud by mistake, things about colleagues — travels to someone
+  else's computer and is kept under terms you did not negotiate.
+- **The built-in one is awkward.** macOS dictation exists, but you have to click
+  into a text field first, it has its own ideas about punctuation, and it is not
+  really designed for talking to your computer all day.
+
+The speech models that make good dictation possible now run comfortably on an
+Apple Silicon Mac. So the monthly fee is buying you a hotkey. Blurt is that
+hotkey.
+
+## What it does
+
+**Dictate anywhere.** Hold ⌥Space from any app, speak, let go. The text is typed
+where your cursor is. Hold-to-talk or press-to-toggle, and the shortcut is yours
+to change.
+
+**See what it hears.** A small pill appears at the bottom of the screen with a
+live waveform and the text as it is being recognised, so you know it is working
+and can stop if it goes astray. It never steals focus from what you were doing.
+
+**Punctuation, done for you.** Full stops and commas appear where they belong.
+Say "comma" or "new line" and you get one. French gets its proper typography —
+the non-breaking space before `; ! ? :` that nothing else bothers with.
+
+**Gets out of the way.** Music or a video is turned down while you speak and
+comes back up afterwards, the way macOS does for Siri.
+
+**Leaves your clipboard alone.** Text is inserted through the clipboard, and
+whatever you had copied — including images and files — is put straight back.
+
+**Tidies up, if you want.** Filler sounds like "um" and "euh" are removed
+automatically. Optionally, Claude can apply spoken corrections — say "send it to
+Marc, no sorry, to Julie" and you get Julie — using an API key you provide.
+
+## Your voice stays yours
+
+This is the part worth being precise about.
+
+| | |
+|---|---|
+| **Audio** | Never written to disk. It goes from the microphone to the transcriber in memory and is gone when the dictation ends. |
+| **Transcription** | Entirely on your Mac, using Apple's on-device speech models. Works offline. |
+| **Your text** | Kept in memory until the next dictation, forgotten when Blurt quits. Nothing is logged. |
+| **Settings** | Stored locally. They contain no dictated content. |
+| **API key** | In the macOS Keychain, encrypted — if you choose to use one. |
+
+The one exception is clearly marked: **if you turn on cleanup through Claude,
+the transcribed text is sent to Anthropic** to be tidied. Never the audio, and
+only while that setting is on. It is off by default and the app is fully usable
+without it. The Settings window tells you which of the two situations you are
+in.
 
 ## Requirements
 
-- macOS 26 or later, on Apple Silicon. Apple's `SpeechAnalyzer` framework sets
-  that floor, and supporting anything older is not a goal.
+- **macOS 26 or later**, on **Apple Silicon**. Apple's on-device speech
+  framework sets that floor.
+- A microphone. The built-in one is fine — often better than a headset's, which
+  tends to be quiet.
+- Optionally, an [Anthropic API key](https://console.anthropic.com) for the
+  cleanup pass. It costs a fraction of a cent per dictation.
 
-## Roadmap
+## Installing
 
-| Step | What it adds | Status |
-|-----:|--------------|--------|
-| 1 | Menu-bar skeleton, settings window, state machine | ✅ done |
-| 2a | Microphone permission, capture, live input level | ✅ done |
-| 2b | The floating recording pill | ✅ done |
-| 3 | Configurable global shortcut, hold-to-talk and toggle | ✅ done |
-| 4 | On-device transcription, live in the pill | ✅ done |
-| 5 | Insertion into the frontmost app, pausing other audio | ✅ done |
-| 6 | Cleanup: fillers, typography, optional Claude polish | ✅ done |
-| 7 | Launch at login, and keeping nothing on disk | ✅ done |
-
-Later, if ever: a personal dictionary for names and jargon
-(`DictationTranscriber` supports custom vocabulary natively), choosing a
-microphone rather than following the system, recolouring the pill, per-app
-writing styles, and voice commands over a selection.
-
-Other transcription engines — Parakeet, Whisper — sit behind the
-`TranscriptionEngine` protocol and would drop in cleanly, but there is no reason
-to add one. They were on the list to reach older versions of macOS, which is not
-something this app is trying to do.
-
-## Details that matter
-
-Dictation lives or dies on small courtesies. These are tracked as features, not
-polish:
-
-- **Get out of the way of whatever is playing.** Music or a video pauses for the
-  length of a dictation and starts again afterwards. Blurt asks CoreAudio which
-  processes are actually producing output before pressing anything, so a
-  dictation in silence never *starts* music that was not running — and it only
-  resumes what it paused itself. Every route out of a dictation, errors included,
-  goes through one place, so none of them can leave your music paused.
-- **Never steal focus.** The recording pill is a non-activating panel. The moment
-  an overlay takes focus, the app that was supposed to receive the text is no
-  longer frontmost and the dictation has nowhere to land.
-- **Borrow the clipboard, never confiscate it.** Insertion goes through the
-  clipboard, so its previous contents are saved and put back — images and files
-  included, not just text. When pasting is not possible, the clipboard is left
-  untouched rather than overwritten: it may hold the only copy of something.
-- **Never lose words.** A dictation that cannot be inserted is still in the menu
-  under Copy Last Dictation.
-- **Keep nothing.** Audio goes from the microphone to the transcriber in memory
-  and is gone when the dictation ends — nothing is written to disk. The text is
-  held only until the next dictation and forgotten on quit. Saving recordings is
-  a diagnostic switch, off by default, with a button to delete whatever it made.
-
-## Design notes
-
-**One explicit state machine.** A dictation moves through `idle → recording →
-transcribing → cleaning → inserting`. That lives in a single `RecordingState`
-enum where each case carries exactly its own data, so states that contradict each
-other cannot be written down at all. The menu-bar icon reads that enum directly.
-
-**Engines behind protocols.** Transcription and cleanup are each defined by a
-protocol with interchangeable implementations, so adding Parakeet or swapping the
-cleanup model touches one file and nothing else.
-
-**Local first.** Every default keeps audio on the machine. The Claude cleanup
-step is opt-in, needs a key you supply, and sends text only — never audio.
-
-## Building
+There is no packaged download yet, so Blurt is built from source. You will need
+[Xcode](https://developer.apple.com/xcode/) and a free Apple Developer account.
 
 ```sh
+git clone https://github.com/Akeem92/Blurt.git
+cd Blurt
 brew install xcodegen
 xcodegen generate
 open Blurt.xcodeproj
 ```
 
-`project.yml` is the source of truth for the project. `Blurt.xcodeproj/`,
-`Support/Info.plist` and `Support/Blurt.entitlements` are generated from it and
-are not tracked in git — re-run `xcodegen generate` after adding files or
-changing build settings.
+Then press ▶ in Xcode.
 
-**Signing matters more than usual here.** macOS binds the Accessibility
-permission to an app's code signature, so an ad-hoc signature — which changes on
-every build — means re-granting it after every build. Create
-`Signing.local.xcconfig` (git-ignored) with your own certificate:
+**One thing to set up first.** macOS ties the permission that lets Blurt type
+into other apps to the app's code signature. An improvised signature changes
+every time you build, so macOS treats each build as a different app and asks for
+the permission again — every single time. Point it at your own certificate once
+and the permission sticks.
+
+Create `Signing.local.xcconfig` next to `project.yml`. It is ignored by git, so
+your identity never ends up in a public repository:
 
 ```
-CODE_SIGN_IDENTITY = <SHA-1 from `security find-identity -v -p codesigning`>
+CODE_SIGN_IDENTITY = <the SHA-1 from the command below>
 DEVELOPMENT_TEAM = <your ten-character team id>
 ```
 
-### Self-tests
-
-Behaviour that only appears once real audio is flowing does not show up at
-compile time, so the debug build carries headless checks:
-
 ```sh
-Blurt.app/Contents/MacOS/Blurt --selftest-capture      # the audio thread
-Blurt.app/Contents/MacOS/Blurt --selftest-record       # capture to a playable file
-Blurt.app/Contents/MacOS/Blurt --selftest-transcribe   # speaks a known sentence, checks the words
-Blurt.app/Contents/MacOS/Blurt --selftest-shortcut     # both activation modes
-Blurt.app/Contents/MacOS/Blurt --selftest-pill         # the pill never takes focus
-Blurt.app/Contents/MacOS/Blurt --selftest-clipboard    # the clipboard round trip
-Blurt.app/Contents/MacOS/Blurt --selftest-media        # playback detection
-Blurt.app/Contents/MacOS/Blurt --selftest-cleanup      # the cleanup rules
+security find-identity -v -p codesigning
 ```
 
-Between them they have caught a crash on the first audio buffer, empty
-transcripts, a microphone left open for good, a shortcut that died after a
-failure, a dictation wedged forever on "Transcribing…", and a clipboard that was
-overwritten and never restored.
+The ten characters in parentheses are your team id.
+
+## Keeping it
+
+Running from Xcode puts the app somewhere deep in `DerivedData` and it goes away
+when you clean the project. To keep Blurt around like any other app, build a
+release copy and move it to your Applications folder:
+
+```sh
+xcodebuild -project Blurt.xcodeproj -scheme Blurt \
+           -configuration Release -derivedDataPath build build
+
+cp -R build/Build/Products/Release/Blurt.app /Applications/
+open /Applications/Blurt.app
+```
+
+Or, in Xcode: switch the scheme to Release, build, then **Product → Show Build
+Folder in Finder** and drag `Blurt.app` into Applications.
+
+**You will not have to grant the permissions again.** macOS recognises an app by
+its code signature rather than by where it sits on disk, so as long as it is
+signed with the same certificate, the microphone and accessibility permissions
+you granted while developing follow the copy. This is the reason the signing
+step above is worth doing properly.
+
+Finally, open **Settings… → General** and turn on **Launch Blurt at login**. It
+will be in the menu bar every time you log in, which is when a dictation app
+stops being something you remember to open and starts being something you use.
+
+The release build is about 1.7 MB and has no debug tooling in it — the
+self-tests below exist only in debug builds.
+
+## First run
+
+Blurt appears in the menu bar as a waveform icon — there is no Dock icon and no
+window. Open **Settings…** from its menu and work through two permissions:
+
+1. **Microphone** — so it can hear you.
+2. **Accessibility** (under *Insertion*) — so it can type into other apps.
+   Without it Blurt still transcribes, but the text has nowhere to go.
+
+Then pick your language under **Transcription**. The model downloads once, after
+which everything works offline. One language at a time: the model cannot switch
+mid-sentence, so choose the one you actually dictate in, which is not always the
+language your Mac is set to.
+
+That is it. Hold ⌥Space anywhere and speak.
+
+## Built with
+
+Entirely native, with a single dependency.
+
+- **Swift 6 and SwiftUI**, with strict concurrency checking.
+- **`SpeechAnalyzer` / `DictationTranscriber`** — Apple's on-device speech
+  models, tuned for dictation rather than general transcription. They are what
+  bring automatic punctuation, spoken punctuation and emoji by name.
+- **AVAudioEngine** for microphone capture, **CoreAudio** for turning other
+  audio down.
+- **[KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts)**
+  (MIT) for the global shortcut. It wraps Carbon's `RegisterEventHotKey`, which
+  needs no permission and keeps working while a password field is focused —
+  unlike an event tap, which goes silent in that state.
+- **Claude Haiku**, optionally, for the cleanup pass.
+- **XcodeGen**, so the project is a readable `project.yml` rather than an opaque
+  binary file.
+
+## Self-tests
+
+Audio behaviour does not show up at compile time or at launch — it surfaces the
+first time someone actually speaks. The debug build therefore carries headless
+checks that can be run without clicking anything:
+
+```sh
+B=Blurt.app/Contents/MacOS/Blurt
+
+$B --selftest-capture      # the audio thread survives real buffers
+$B --selftest-record       # capture through to a playable file
+$B --selftest-transcribe   # speaks a known sentence, checks the words come back
+$B --selftest-shortcut     # both activation modes, including a brushed key
+$B --selftest-pill         # the pill never takes focus
+$B --selftest-clipboard    # the clipboard is borrowed and given back intact
+$B --selftest-media        # the volume ducks and comes back
+$B --selftest-cleanup      # the cleanup rules, including French typography
+$B --selftest-mic          # a bench: records from your microphone and reports
+```
+
+The last one is not a pass/fail check but a bench. Transcription quality cannot
+be judged from an impression after the fact, because every attempt says
+something different in a different voice. It records the same sentence under one
+changed setting at a time and reports the input level, whether the model
+finalised, and what it heard.
+
+Between them these have caught a crash on the first audio buffer, transcripts
+that came back empty, a microphone left open indefinitely, a shortcut that
+stopped responding after a failure, a dictation wedged forever on
+"Transcribing…", a clipboard overwritten and never restored, and an entire
+dictation written out twice.
 
 ## Licence
 
